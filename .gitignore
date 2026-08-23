@@ -18,7 +18,7 @@ backend/repositories/
 backend/generated_docs/
 backend/storage/
 backend/rag/storage/
-backend/workflow/
+backend/workflow/*.json
 logs/
 *.log
 
