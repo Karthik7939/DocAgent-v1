@@ -1,0 +1,36 @@
+# Dependencies
+node_modules/
+.venv/
+venv/
+env/
+__pycache__/
+*.py[cod]
+
+# Next.js build output
+.next/
+out/
+build/
+dist/
+
+# Local databases & persistent state
+data/
+backend/repositories/
+backend/generated_docs/
+backend/storage/
+backend/rag/storage/
+backend/workflow/
+logs/
+*.log
+
+# Environment & secret files
+.env
+.env.local
+.env.development.local
+.env.production.local
+*.env
+
+# Operating system & IDE
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

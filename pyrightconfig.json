@@ -1,0 +1,13 @@
+{
+  "pythonVersion": "3.11",
+  "venvPath": "backend",
+  "venv": ".venv",
+  "extraPaths": [
+    "backend"
+  ],
+  "typeCheckingMode": "basic",
+  "reportMissingModuleSource": "none",
+  "reportMissingImports": "warning",
+  "reportUndefinedVariable": "error",
+  "useLibraryCodeForTypes": true
+}
