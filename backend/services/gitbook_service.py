@@ -133,6 +133,56 @@ class GitBookService:
                 "message": f"Connection error: {str(exc)}",
             }
 
+    def publish_document(
+        self,
+        space_id: str,
+        filename: str,
+        content: str,
+        token: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """
+        Publish a single Markdown document's raw content to a GitBook Space.
+
+        GitBook's Content Import API only supports importing from a publicly
+        reachable URL (see ``publish_document_from_url``); there is no
+        endpoint that accepts inline Markdown content directly. This method
+        validates the request and reports that limitation instead of
+        attempting an unsupported call.
+
+        Args:
+            space_id: GitBook Space ID (or full space URL).
+            filename: Filename for logging/reporting purposes.
+            content: Markdown content string (validated but not sent inline).
+            token: Optional API token override.
+
+        Returns:
+            dict: Result details including status and message.
+        """
+        clean_id = self._clean_space_id(space_id)
+        if not clean_id:
+            return {"success": False, "message": "GitBook Space ID is required."}
+
+        try:
+            self._get_headers(token)
+        except ValueError as val_err:
+            return {"success": False, "message": str(val_err)}
+
+        logger.warning(
+            "publish_document called for %s — GitBook's API only supports "
+            "URL-based content import; use publish_repository_docs (which "
+            "serves files via a public URL) instead.",
+            filename,
+        )
+        return {
+            "success": False,
+            "filename": filename,
+            "message": (
+                "Direct content publish is not supported by GitBook's API. "
+                "Use 'Publish Repository' instead, which imports documents "
+                "via a publicly reachable URL."
+            ),
+        }
+
     def publish_document_from_url(
         self,
         space_id: str,

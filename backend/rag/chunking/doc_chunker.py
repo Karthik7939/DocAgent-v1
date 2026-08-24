@@ -15,7 +15,7 @@ from typing import Optional
 from rag.chunking.models import ChunkDraft, ChunkType, SymbolType
 from rag.config.settings import settings
 from rag.parsing.language_detector import LanguageDetector
-from rag.utils.tokenizer import estimate_tokens
+from rag.utils.tokenizer import estimate_tokens, overlap_suffix
 
 _MARKDOWN_HEADING = re.compile(r"^(#{1,6})\s+(.+)$")
 _RST_HEADING = re.compile(r"^(=|-|`|:|~|'|\"|\^|\+|\*){3,}\s*$")
@@ -46,9 +46,13 @@ class DocChunker:
     def __init__(
         self,
         max_chunk_tokens: int | None = None,
+        chunk_overlap: int | None = None,
     ) -> None:
         self._max_chunk_tokens = (
             max_chunk_tokens or settings.max_chunk_tokens
+        )
+        self._chunk_overlap = (
+            settings.chunk_overlap if chunk_overlap is None else chunk_overlap
         )
 
     def chunk(
@@ -419,8 +423,17 @@ class DocChunker:
                         symbol_type=SymbolType.SECTION,
                     ),
                 )
-                current_start = line_cursor
-                current_parts = [paragraph]
+                # Seed the next piece with trailing paragraphs from the
+                # piece just closed, so the hard cut doesn't lose context
+                # right at the boundary. start_line moves back by the same
+                # approximate per-paragraph line span used elsewhere here.
+                overlap = overlap_suffix(
+                    current_parts, self._chunk_overlap, joiner="\n\n",
+                )
+                current_start = line_cursor - sum(
+                    p.count("\n") + 2 for p in overlap
+                )
+                current_parts = [*overlap, paragraph]
             else:
                 current_parts.append(paragraph)
 

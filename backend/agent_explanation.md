@@ -24,10 +24,11 @@ GitHub Push Event
   ┌──────────────────────────────────────────┐
   │ 1. Preprocessing Agent  — no AI          │
   │ 2. Understanding Agent  — LangChain LLM  │
-  │ 3. Documentation Agent  — LangChain LLM  │
-  │ 4. Validation Agent     — rules + LLM    │
-  │ 5. Revision Agent       — LangChain LLM  │
-  │ 6. Sync Agent           — no AI, writes  │
+  │ 3. Planner Agent        — no AI          │
+  │ 4. Documentation Agent  — LangChain LLM  │
+  │ 5. Validation Agent     — rules + LLM    │
+  │ 6. Revision Agent       — LangChain LLM  │
+  │ 7. Sync Agent           — no AI, writes  │
   └──────────────────────────────────────────┘
        ↓
   generated_docs/<repo>/<file>.md   ← the final output
@@ -37,6 +38,16 @@ All agents share a single object called **SharedMemory**.
 No agent talks to another agent directly — they just read and write to
 this shared object. The **Coordinator** is the only one that runs agents.
 
+**Note on the Planner Agent** (`agents/documentation/planner_agent.py`,
+`DocumentationPlanningAgent`): it runs as a real node in the graph between
+Understanding and Documentation, and writes folder classifications and a
+plan to `shared_memory.plan` — but as of this writing, `DocumentationAgent`
+does not read that output. It's a real, executing step with no functional
+effect on the final docs yet. Flagged during a 2026-08-24 code audit as
+dead output, not fixed then since wiring it in would be a new feature
+rather than a bug fix — kept here so this doc doesn't overstate what the
+Planner currently does.
+
 ---
 
 ## Frameworks Used
@@ -44,7 +55,7 @@ this shared object. The **Coordinator** is the only one that runs agents.
 | Framework | What it does in this project |
 |---|---|
 | **LangChain** | Powers all LLM calls. Replaces raw HTTP requests to Groq/Gemini/OpenAI with a clean `ChatGroq` model and `StrOutputParser` chain. |
-| **LangGraph** | Manages the Coordinator. The 6-agent pipeline is a compiled directed graph. Each agent is a "node". Edges control what runs next. |
+| **LangGraph** | Manages the Coordinator. The 7-agent pipeline is a compiled directed graph. Each agent is a "node". Edges control what runs next. |
 | **FastAPI** | Receives GitHub webhooks, runs the HTTP server. |
 
 ---

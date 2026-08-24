@@ -17,7 +17,7 @@ from rag.parsing.ast_parser import ASTParser
 from rag.parsing.language_detector import LanguageDetector
 from rag.parsing.symbol_extractor import SymbolExtractor
 from rag.utils import get_logger
-from rag.utils.tokenizer import estimate_tokens
+from rag.utils.tokenizer import estimate_tokens, overlap_suffix
 
 logger = get_logger(__name__)
 
@@ -81,6 +81,7 @@ class CodeChunker:
         parser: ASTParser | None = None,
         extractor: SymbolExtractor | None = None,
         max_chunk_tokens: int | None = None,
+        chunk_overlap: int | None = None,
     ) -> None:
         self._parser = parser or ASTParser()
         self._extractor = extractor or SymbolExtractor(
@@ -88,6 +89,9 @@ class CodeChunker:
         )
         self._max_chunk_tokens = (
             max_chunk_tokens or settings.max_chunk_tokens
+        )
+        self._chunk_overlap = (
+            settings.chunk_overlap if chunk_overlap is None else chunk_overlap
         )
 
     def chunk(
@@ -325,8 +329,12 @@ class CodeChunker:
                     parent_symbol=parent_symbol,
                 ),
             )
-            current_lines = [line]
-            current_start = kept_end + 1
+            # Seed the next piece with trailing context from the piece just
+            # closed, so the hard cut doesn't lose everything right at the
+            # boundary. start_line moves back to where the overlap begins.
+            overlap = overlap_suffix(kept_lines, self._chunk_overlap)
+            current_lines = [*overlap, line]
+            current_start = kept_end - len(overlap) + 1
 
         if current_lines:
             pieces.append(

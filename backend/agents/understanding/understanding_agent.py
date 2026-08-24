@@ -326,8 +326,15 @@ class UnderstandingAgent:
         logger.info("API discovery completed: %d endpoint(s)", len(understanding.apis))
 
         # --- Folder responsibilities ---
+        # Verified live (2026-08-24): the original generic-keyword-bag
+        # phrasing ("folder directory structure package module organization
+        # responsibilities architecture layout") returned mostly unrelated
+        # UI component/skeleton files even with the reranker (P0.1) in
+        # place — those abstract words rarely appear verbatim in real
+        # content. This concrete, sentence-style phrasing retrieves
+        # README/layout/shell files instead.
         folder_ctx = self._retrieve(
-            "folder directory structure package module organization responsibilities architecture layout",
+            "top level directories frontend backend src app components pages api routes and what each folder contains",
             repo_name=repo_name,
         )
         folder_raw = self._ask_llm(FOLDER_RESPONSIBILITY_PROMPT.format(
@@ -342,8 +349,11 @@ class UnderstandingAgent:
         )
 
         # --- Dependency graph ---
+        # Same fix as folder_responsibilities above — verified live that
+        # this concrete phrasing surfaces service/entrypoint files
+        # (main.py, middleware) instead of unrelated UI components.
         dep_ctx = self._retrieve(
-            "import dependency service layer component relationship client helper database client",
+            "backend API client database connection service calls between modules",
             repo_name=repo_name,
         )
         modules_str = "; ".join(m.name for m in understanding.modules) or "Unknown"
@@ -416,8 +426,15 @@ class UnderstandingAgent:
             str: LLM response text.
 
         Raises:
+            ValueError:   If no llm_client was configured (non-recoverable —
+                          retrying won't help a missing client).
             RuntimeError: On any LLM communication failure.
         """
+        if self._llm is None:
+            raise ValueError(
+                "UnderstandingAgent has no llm_client configured; "
+                "cannot run without one."
+            )
         try:
             return self._llm.generate(prompt)
         except Exception as exc:

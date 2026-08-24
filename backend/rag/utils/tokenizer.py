@@ -101,6 +101,50 @@ def normalize_whitespace(text: str) -> str:
     return re.sub(r"\s+", " ", text).strip()
 
 
+def overlap_suffix(
+    units: list[str],
+    overlap_tokens: int,
+    joiner: str = "\n",
+) -> list[str]:
+    """
+    Return a trailing suffix of `units` (e.g. lines or paragraphs) whose
+    combined estimated token count fits within `overlap_tokens`.
+
+    Used when an oversized chunk must be hard-split: seeding the start of
+    the next piece with the tail of the previous one preserves context
+    right at the split boundary instead of losing it at a hard cut.
+
+    Parameters
+    ----------
+    units : list[str]
+        The content already placed in the piece being closed, in order.
+    overlap_tokens : int
+        Token budget for the overlap. <= 0 means no overlap.
+    joiner : str
+        String used to join units when estimating combined token count
+        (e.g. "\\n" for lines, "\\n\\n" for paragraphs).
+
+    Returns
+    -------
+    list[str]
+        Trailing units to prepend to the next piece, oldest first. Empty
+        when overlap_tokens <= 0, units is empty, or even the single most
+        recent unit alone exceeds the overlap budget.
+    """
+
+    if overlap_tokens <= 0 or not units:
+        return []
+
+    selected: list[str] = []
+    for unit in reversed(units):
+        candidate = [unit, *selected]
+        if estimate_tokens(joiner.join(candidate)) > overlap_tokens:
+            break
+        selected = candidate
+
+    return selected
+
+
 def truncate_to_token_limit(
     text: str,
     max_tokens: int,

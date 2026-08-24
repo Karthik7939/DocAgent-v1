@@ -118,6 +118,12 @@ class Chunker:
 
             relative_path = file_path.relative_to(root).as_posix()
 
+            # Logged (and flushed) before parsing each file so that if the
+            # process dies without a Python exception (e.g. a native crash
+            # in the Tree-sitter parser), the last log line pinpoints the
+            # file that caused it.
+            logger.info("Chunking file %d/%d: %s", idx, total_files, relative_path)
+
             if not self.should_process(file_path):
                 statistics = statistics.model_copy(
                     update={

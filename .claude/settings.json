@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "PowerShell(Get-Command ollama -ErrorAction SilentlyContinue)",
+      "Bash(.venv/Scripts/python.exe -m pip install --quiet pyright)",
+      "Bash(.venv/Scripts/pyright.exe rag/preprocessing/semantic_refiner.py)",
+      "Bash(.venv/Scripts/python.exe -c ' *)",
+      "Bash(.venv/Scripts/pyright.exe rag/utils/tokenizer.py rag/chunking/code_chunker.py rag/chunking/doc_chunker.py)"
+    ]
+  }
+}

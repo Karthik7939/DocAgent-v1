@@ -12,7 +12,7 @@ where the full context package may contain hundreds of chunks.
 from __future__ import annotations
 
 import logging
-from typing import Optional
+from typing import Optional, cast
 
 logger = logging.getLogger(__name__)
 
@@ -21,6 +21,13 @@ logger = logging.getLogger(__name__)
 # produce higher-quality documentation than large, unfocused dumps.
 MAX_FILE_CONTEXT_CHARS: int = 3_000    # ~750 tokens — file-specific RAG chunks
 MAX_GLOBAL_CONTEXT_CHARS: int = 4_000  # ~1 000 tokens — repo-level RAG chunks
+
+# MMR relevance/diversity balance: 1.0 = pure relevance (original rank
+# order, no diversity effect), 0.0 = pure diversity (ignores relevance
+# entirely). 0.7 keeps relevance dominant while still demoting near-
+# duplicate chunks that would otherwise eat the character budget with
+# redundant content instead of covering more of the repository.
+MMR_LAMBDA: float = 0.7
 
 
 class ContextSlicer:
@@ -89,7 +96,7 @@ class ContextSlicer:
         if not matching:
             matching = [r for r in results if self._mentions_file(r, norm_target)]
 
-        return self._format(matching, budget)
+        return self._format(self._mmr_reorder(matching), budget)
 
     def get_chunks_for_module(
         self,
@@ -122,7 +129,7 @@ class ContextSlicer:
             r for r in results
             if self._chunk_file_path(r).startswith(norm_module)
         ]
-        return self._format(matching, budget)
+        return self._format(self._mmr_reorder(matching), budget)
 
     def get_global_context(
         self,
@@ -149,7 +156,7 @@ class ContextSlicer:
 
         # Sort by rank (rank 1 = best), take top 30 before applying budget
         top = sorted(results, key=lambda r: getattr(r, "rank", 999))[:30]
-        return self._format(top, budget)
+        return self._format(self._mmr_reorder(top), budget)
 
     # ------------------------------------------------------------------
     # Internal helpers
@@ -186,6 +193,71 @@ class ContextSlicer:
             return norm_target in reason or filename in reason
         except Exception:
             return False
+
+    @staticmethod
+    def _cosine_similarity(a: list, b: list) -> float:
+        """Cosine similarity between two equal-length embedding vectors."""
+        if not a or not b or len(a) != len(b):
+            return 0.0
+        dot = sum(x * y for x, y in zip(a, b))
+        norm_a = sum(x * x for x in a) ** 0.5
+        norm_b = sum(y * y for y in b) ** 0.5
+        if norm_a == 0.0 or norm_b == 0.0:
+            return 0.0
+        return dot / (norm_a * norm_b)
+
+    @staticmethod
+    def _mmr_reorder(items: list, lambda_mult: float = MMR_LAMBDA) -> list:
+        """
+        Reorder items with Maximal Marginal Relevance so near-duplicate
+        chunks don't crowd out coverage of different parts of the file/repo.
+
+        Greedily picks, at each step, the remaining item that best balances
+        staying close to the incoming relevance order against being
+        dissimilar to what's already been selected — using each chunk's
+        embedding (already computed during retrieval, no extra model call)
+        for the diversity comparison. The top-ranked item is always kept
+        first.
+
+        Falls back to the original order unchanged when any chunk is
+        missing an embedding, or there's nothing to reorder.
+
+        Args:
+            items:       Retrieval results already in relevance/rank order.
+            lambda_mult: Relevance/diversity balance — see MMR_LAMBDA.
+
+        Returns:
+            list: Reordered items (same items, no filtering).
+        """
+        n = len(items)
+        if n <= 1:
+            return items
+
+        raw_embeddings = [getattr(item.chunk, "embedding", None) for item in items]
+        if any(not e for e in raw_embeddings):
+            return items
+        embeddings = cast("list[list[float]]", raw_embeddings)
+
+        # Relevance proxy from incoming rank order: 1.0 (best) .. ~0 (worst).
+        relevance = [1.0 - (i / n) for i in range(n)]
+
+        selected: list[int] = [0]
+        remaining = list(range(1, n))
+
+        while remaining:
+            best_idx, best_score = remaining[0], float("-inf")
+            for idx in remaining:
+                max_sim = max(
+                    ContextSlicer._cosine_similarity(embeddings[idx], embeddings[s])
+                    for s in selected
+                )
+                score = lambda_mult * relevance[idx] - (1 - lambda_mult) * max_sim
+                if score > best_score:
+                    best_idx, best_score = idx, score
+            selected.append(best_idx)
+            remaining.remove(best_idx)
+
+        return [items[i] for i in selected]
 
     @staticmethod
     def _format(items: list, budget: int) -> str:

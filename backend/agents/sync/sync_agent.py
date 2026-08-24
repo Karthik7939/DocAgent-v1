@@ -282,5 +282,5 @@ class SyncAgent:
         # Normalise separators so both / and \ work on any OS
         normalised = src_path.replace("\\", "/")
         if not normalised.endswith(".md"):
-            return repo_output_dir / normalised / f"{normalised}.md"
+            return repo_output_dir / f"{normalised}.md"
         return repo_output_dir / normalised

@@ -9,14 +9,14 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 from rag.config import settings
 from rag.embeddings.embedder import Embedder
 from rag.retrieval.dependency_retriever import DependencyRetriever
 from rag.retrieval.keyword_store import KeywordStore
 from rag.retrieval.metadata_filter import MetadataFilter
-from rag.retrieval.vector_store import VectorStore
+from rag.retrieval.reranker import CrossEncoderReranker
 from rag.schemas.chunk import Chunk
 from rag.schemas.query import SemanticQuery
 from rag.schemas.retrieval import (
@@ -25,6 +25,11 @@ from rag.schemas.retrieval import (
     RetrievalSource,
 )
 from rag.utils import get_logger
+
+if TYPE_CHECKING:
+    # Deferred: rag.retrieval.vector_store imports faiss at module level.
+    # See rag/indexing/invalidation.py for why this must stay lazy.
+    from rag.retrieval.vector_store import VectorStore
 
 logger = get_logger(__name__)
 
@@ -55,12 +60,18 @@ class HybridRetriever:
         dependency_retriever: DependencyRetriever,
         metadata_filter: MetadataFilter | None = None,
         embedder: Embedder | None = None,
+        reranker: CrossEncoderReranker | None = None,
     ) -> None:
         self._vector_store = vector_store
         self._keyword_store = keyword_store
         self._dependency_retriever = dependency_retriever
         self._metadata_filter = metadata_filter or MetadataFilter()
         self._embedder = embedder
+        # Constructing CrossEncoderReranker is cheap — it only loads the
+        # actual model lazily on first rerank() call, so it's safe to
+        # always create one here and gate usage on settings.rerank_enabled
+        # at call time (see rank()) rather than at construction time.
+        self._reranker = reranker or CrossEncoderReranker()
         self._stats = HybridRetrieverStatistics()
 
     def retrieve(
@@ -192,10 +203,29 @@ class HybridRetriever:
         top_k: Optional[int] = None,
     ) -> list[RetrievalResult]:
         """
-        Merge, rank, and trim hybrid retrieval results.
+        Merge, rerank, and trim hybrid retrieval results.
+
+        RRF fusion (in merge()) orders candidates by rank position only,
+        with no real relevance judgment. When reranking is enabled, a
+        wider candidate pool is fed to a cross-encoder that scores each
+        candidate directly against the query text before final truncation
+        to top_k. Falls back to plain RRF order if reranking is disabled,
+        unavailable (query has no query_text, e.g. an empty SemanticQuery),
+        or fails.
         """
         merged = self.merge(ranked_lists, query=query)
         limit = top_k or settings.top_k
+
+        if settings.rerank_enabled and query is not None and query.query_text:
+            pool_size = max(limit, settings.rerank_candidate_pool)
+            reranked = self._reranker.rerank(query.query_text, merged[:pool_size], limit)
+            # None means reranking didn't actually run (model unavailable
+            # or scoring failed) — fall through to plain RRF order below.
+            # A list (even an empty one) means it DID run, and an empty
+            # result is a genuine "nothing relevant" outcome to honor, not
+            # a reason to fall back.
+            if reranked is not None:
+                return reranked
 
         for index, result in enumerate(merged[:limit], start=1):
             merged[index - 1] = result.model_copy(update={"rank": index})

@@ -1,22 +1,38 @@
-# GitHub Repository Workflow Backend
+# DocAgent Backend
 
-A production-ready FastAPI backend service that receives GitHub push webhooks,
-synchronises repositories locally, extracts commit metadata, and persists
-workflow execution state as JSON files.
+A FastAPI backend that receives GitHub push webhooks and automatically
+generates, validates, and publishes repository documentation. It combines
+a Retrieval-Augmented Generation (RAG) engine — for grounding the LLM in
+actual repository content — with a 7-stage LangGraph multi-agent pipeline
+that writes, checks, and revises the docs, then syncs them to GitBook.
+
+For deeper detail than this quick-start covers, see:
+- **`agent_explanation.md`** — plain-English walkthrough of every agent
+  in the documentation pipeline.
+- **`Backend_Explanation.md`** — file-by-file explanation of the FastAPI
+  app, config, services, and workflow layers.
+- **`rag/RAG_WALKTHROUGH.md`** — plain-English, workflow-by-workflow
+  explanation of the RAG engine (bootstrap, incremental updates,
+  retrieval, and how it connects to the agents).
+- **`rag_fix_plan.md`** / **`fix_plan.md`** — known issues found and
+  fixed in the RAG pipeline and agent pipeline, with the reasoning
+  behind each decision.
 
 ---
 
 ## Features
 
-- ✅ GitHub Push Webhook receiver
-- ✅ HMAC-SHA256 signature verification
-- ✅ Automatic repository clone / pull via GitPython
-- ✅ Commit metadata extraction (SHA, message, author, timestamp)
-- ✅ Changed-file aggregation (added / modified / removed)
-- ✅ Workflow lifecycle management (pending → in_progress → completed / failed)
-- ✅ JSON-based workflow state persistence
-- ✅ Rotating file + console logging
-- ✅ Health check endpoint
+- ✅ GitHub push webhook receiver with HMAC-SHA256 signature verification
+- ✅ RAG-backed code context retrieval — hybrid vector (Pinecone/FAISS) +
+  BM25 keyword + dependency-graph search, fused via Reciprocal Rank
+  Fusion, reranked with a cross-encoder
+- ✅ 7-agent LangGraph pipeline: Preprocessing → Understanding → Planner →
+  Documentation → Validation → Revision → Sync
+- ✅ Incremental indexing on every push (only changed files are re-chunked
+  and re-embedded)
+- ✅ Human-in-the-loop review before docs are published
+- ✅ GitBook synchronization for the final rendered docs
+- ✅ Knowledge Base UI endpoints for connecting/managing indexed repos
 - ✅ Fully typed with Pydantic v2
 - ✅ pytest unit tests with mocks
 
@@ -27,42 +43,46 @@ workflow execution state as JSON files.
 ```
 backend/
 ├── app/
-│   ├── main.py              # FastAPI app factory
-│   ├── dependencies.py      # Dependency injection wiring
+│   ├── main.py                  # FastAPI app factory
+│   ├── dependencies.py          # Dependency injection wiring
 │   ├── api/
-│   │   ├── router.py        # Route registration
-│   │   ├── webhook.py       # POST /webhook/github
-│   │   └── health.py        # GET /health
-│   ├── core/
-│   │   ├── config.py        # Settings loader
-│   │   ├── settings.py      # Settings model
-│   │   ├── logger.py        # Logging configuration
-│   │   └── constants.py     # Enums and constants
-│   └── models/
-│       ├── webhook.py       # Pydantic webhook models
-│       └── workflow.py      # Pydantic workflow models
-├── services/
-│   ├── github_service.py    # Pipeline orchestrator
-│   ├── git_service.py       # Clone / pull via GitPython
-│   ├── parser_service.py    # Commit data extraction
-│   ├── workflow_service.py  # Workflow lifecycle façade
-│   └── repository_service.py# Directory management
-├── workflow/
-│   ├── workflow_state.py    # Workflow dataclass
-│   └── workflow_manager.py  # Persistence manager
-├── utils/
-│   ├── file_utils.py        # JSON read/write helpers
-│   ├── git_utils.py         # GitPython introspection helpers
-│   └── helpers.py           # UUID, timestamp, response formatting
-├── repositories/            # Cloned repositories (runtime)
-├── workflow/                # Workflow JSON files (runtime)
-├── logs/                    # Application log files (runtime)
-├── tests/
-│   ├── test_webhook.py
-│   ├── test_github.py
-│   └── test_git.py
-├── .env.example
-└── requirements.txt
+│   │   ├── router.py            # Route registration
+│   │   ├── webhook.py           # POST /webhook/github
+│   │   ├── rag.py               # RAG bootstrap/retrieve/knowledge-base endpoints
+│   │   ├── documents.py         # Generated documentation endpoints
+│   │   ├── gitbook.py           # GitBook sync endpoints
+│   │   ├── debug.py             # Debug/inspection endpoints
+│   │   └── health.py            # GET /health
+│   ├── core/                    # Settings, logging, constants
+│   └── models/                  # Pydantic request/response models
+├── agents/                      # 7-stage LangGraph documentation pipeline
+│   ├── coordinator/              # Orchestrator (LangGraph StateGraph)
+│   ├── preprocessing/            # Repo scanner (no AI)
+│   ├── understanding/            # LLM semantic analysis (RAG-grounded)
+│   ├── documentation/            # Planner + LLM doc writer
+│   ├── validation/                # Quality checker (rules + LLM)
+│   ├── revision/                  # Auto-fixer
+│   ├── sync/                      # Writes docs to disk
+│   └── memory/                    # SharedMemory (the shared whiteboard)
+├── rag/                          # RAG engine — see rag/RAG_WALKTHROUGH.md
+│   ├── chunking/                  # AST-based semantic chunking (Tree-sitter)
+│   ├── embeddings/                 # sentence-transformers + caching
+│   ├── retrieval/                  # Vector store, BM25, dependency graph, reranker
+│   ├── indexing/                   # Bootstrap + incremental indexing
+│   ├── pipeline/                   # Bootstrap/retrieval pipeline orchestration
+│   ├── preprocessing/               # Commit-diff query building + LLM query refinement
+│   └── config/                      # RAG settings
+├── services/                     # github_service, git_service, rag_service, etc.
+├── workflow/                     # Workflow JSON persistence
+├── prompts/                      # Prompt templates for every LLM-calling agent
+├── utils/                        # JSON/Git/UUID helpers
+├── scripts/                      # Standalone maintenance scripts (e.g. run_index_repo.py)
+├── repositories/                 # Cloned repositories (runtime)
+├── generated_docs/               # Output folder — docs written here (runtime)
+├── logs/                         # Application log files (runtime)
+├── tests/                        # pytest suite
+├── .env                          # Your API keys and settings (never commit)
+└── requirements.txt              # All Python dependencies
 ```
 
 ---
@@ -71,8 +91,10 @@ backend/
 
 ### Prerequisites
 
-- Python 3.12+
+- Python 3.11+
 - Git
+- A Pinecone account + index (or configure the FAISS local backend instead)
+- An LLM provider API key (Gemini, Groq, or a locally-running Ollama)
 
 ### Steps
 
@@ -93,181 +115,81 @@ pip install -r requirements.txt
 
 # 4. Configure environment
 cp .env.example .env
-# Edit .env and set GITHUB_SECRET if you want signature verification
+# Edit .env — set your LLM provider key(s), Pinecone key/index, and
+# RAG_* settings. See rag/config/settings.py for what each does.
 ```
-
----
-
-## Environment Variables
-
-| Variable          | Default            | Description                                        |
-|-------------------|--------------------|----------------------------------------------------|
-| `GITHUB_SECRET`   | *(empty)*          | HMAC secret for verifying GitHub webhook signatures. Leave empty to skip verification. |
-| `REPOSITORY_ROOT` | `repositories`     | Directory where cloned repositories are stored.    |
-| `WORKFLOW_PATH`   | `workflow`         | Directory where workflow JSON files are persisted. |
-| `LOG_LEVEL`       | `INFO`             | Python logging level (DEBUG, INFO, WARNING, ERROR).|
-| `LOG_FILE`        | `logs/backend.log` | Path to the rotating log file.                     |
 
 ---
 
 ## Running Locally
 
-To run the project and receive GitHub webhook notifications to trigger documentation generation, follow these steps:
+**Use `start.ps1` instead of running `uvicorn` directly on Windows** — it
+restricts `--reload`'s file watcher to source directories only. Running
+plain `uvicorn --reload` watches the whole project, including
+`repositories/`, so a webhook-triggered `git clone` can trigger a reload
+mid-pipeline and kill an in-progress documentation run.
 
-### Step 1: Activate Virtual Environment
-```bash
-# Windows
+```powershell
 .venv\Scripts\activate
-
-# macOS / Linux
-source .venv/bin/activate
+.\start.ps1
 ```
 
-### Step 2: Configure Environment Variables
-Copy `.env.example` to `.env` (if not already done) and set:
-```env
-GROQ_API_KEY=your_groq_api_key_here
-LLM_MODEL=llama-3.3-70b-versatile
-```
+(On macOS/Linux, or if you don't need the restricted watch, plain
+`uvicorn app.main:app --reload --host 0.0.0.0 --port 8000` works too.)
 
-### Step 3: Run the FastAPI Server
-```bash
-uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
-```
 - Swagger UI docs: http://localhost:8000/docs
-- Health check endpoint: http://localhost:8000/health
+- Health check: http://localhost:8000/health
 
-### Step 4: Expose Server via ngrok
-Since GitHub webhooks need a public HTTPS URL, start ngrok to create a secure tunnel:
+### Index a repository before it can be documented
+
+The RAG engine needs a repository indexed before retrieval returns useful
+context. Either:
+- `POST /api/rag/index-repo` with `{"repository_name": "owner/repo"}` —
+  clones (if needed) and bootstraps the index in one call, or
+- `POST /api/rag/bootstrap` if the repo is already cloned locally.
+
+### Receive GitHub webhooks locally
+
+Since GitHub webhooks need a public HTTPS URL, use ngrok (or similar) to
+tunnel to your local server:
+
 ```bash
 ngrok http 8000
 ```
-Copy the forwarding URL generated by ngrok (e.g., `https://xxxx-xxxx-xxxx.ngrok-free.dev`).
 
-### Step 5: Configure Webhook in GitHub Settings
-1. Go to your repository settings page on GitHub.
-2. Select **Webhooks** -> **Add Webhook**.
-3. **Payload URL**: Paste your ngrok URL with `/webhook/github` path (e.g., `https://xxxx-xxxx-xxxx.ngrok-free.dev/webhook/github`).
-4. **Content type**: Set to `application/json`.
-5. **Secret**: Set it to match the `GITHUB_SECRET` configured in your `.env` file (if signature verification is enabled).
-6. **Which events**: Select **"Just the push event"**.
-7. Click **Add Webhook**.
+Then in your repository's GitHub settings → Webhooks → Add Webhook:
+1. **Payload URL**: `https://<your-ngrok-url>/webhook/github`
+2. **Content type**: `application/json`
+3. **Secret**: matches `GITHUB_SECRET` in `.env` (optional — signature
+   verification is skipped if left empty)
+4. **Which events**: "Just the push event"
 
-Now, every time you push code to your repository, the server will sync the code, and the Agentic AI pipeline will run automatically using Groq.
+Every push after that will trigger: repo sync → incremental RAG indexing
+→ the full agent pipeline → docs written to `generated_docs/<repo>/`.
 
 ---
 
 ## API Documentation
 
 ### GET /health
-
-Returns the application health status.
-
-**Response**
-```json
-{
-    "status": "healthy"
-}
-```
-
----
+Returns `{"status": "healthy"}`.
 
 ### POST /webhook/github
+Receives a GitHub push event. Requires `X-GitHub-Event: push` and, if
+`GITHUB_SECRET` is set, a valid `X-Hub-Signature-256` header. Returns
+`202 Accepted` immediately — the pipeline runs in a background thread so
+GitHub doesn't see a timeout.
 
-Receives a GitHub push event webhook.
+### RAG endpoints (`/api/rag/*`)
+`bootstrap`, `index-repo`, `retrieve`, `status/{repository_name}`,
+`knowledge-base` (list/delete indexed repos), `repos` (list local repos +
+index status). See the Swagger UI for full request/response shapes.
 
-**Required Headers**
+### Document & GitBook endpoints (`/api/documents/*`, `/api/gitbook/*`)
+List generated docs, fetch a specific doc, and sync approved docs to a
+connected GitBook space.
 
-| Header                  | Description                              |
-|-------------------------|------------------------------------------|
-| `Content-Type`          | `application/json`                       |
-| `X-GitHub-Event`        | Must be `push`                           |
-| `X-Hub-Signature-256`   | HMAC-SHA256 signature (when secret set)  |
-
-**Success Response (HTTP 200)**
-```json
-{
-    "status": "success",
-    "workflow_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
-    "repository": "demo",
-    "branch": "main"
-}
-```
-
-**Error Response (HTTP 400)**
-```json
-{
-    "status": "error",
-    "message": "Unsupported GitHub event"
-}
-```
-
----
-
-## Example Webhook Payload
-
-```json
-{
-    "ref": "refs/heads/main",
-    "before": "abc123def456",
-    "after": "789ghi012jkl",
-    "repository": {
-        "id": 123456,
-        "name": "demo",
-        "full_name": "octocat/demo",
-        "clone_url": "https://github.com/octocat/demo.git",
-        "default_branch": "main",
-        "owner": {
-            "name": "octocat",
-            "email": "octocat@github.com"
-        }
-    },
-    "pusher": {
-        "name": "octocat",
-        "email": "octocat@github.com"
-    },
-    "commits": [
-        {
-            "id": "789ghi012jkl",
-            "message": "Add new feature",
-            "timestamp": "2026-06-30T10:20:00Z",
-            "added": ["src/feature.py"],
-            "modified": ["README.md"],
-            "removed": []
-        }
-    ],
-    "head_commit": {
-        "id": "789ghi012jkl",
-        "message": "Add new feature",
-        "timestamp": "2026-06-30T10:20:00Z",
-        "added": ["src/feature.py"],
-        "modified": ["README.md"],
-        "removed": []
-    }
-}
-```
-
----
-
-## Workflow JSON Format
-
-Each processed push event creates a file at `workflow/<uuid>.json`:
-
-```json
-{
-    "workflow_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
-    "repository": "octocat/demo",
-    "branch": "main",
-    "status": "completed",
-    "commit_sha": "789ghi012jkl",
-    "timestamp": "2026-06-30T10:20:00Z",
-    "changed_files": [
-        "src/feature.py",
-        "README.md"
-    ],
-    "error_message": null
-}
-```
+Full interactive schema for every endpoint: http://localhost:8000/docs
 
 ---
 
@@ -278,33 +200,23 @@ Each processed push event creates a file at `workflow/<uuid>.json`:
 pytest tests/ -v
 
 # Run a specific test file
-pytest tests/test_webhook.py -v
+pytest tests/test_agents/test_coordinator.py -v
 
-# Run with coverage (requires pytest-cov)
-pytest tests/ --cov=app --cov=services --cov=workflow --cov=utils -v
+# Run with coverage
+pytest tests/ --cov=app --cov=agents --cov=rag --cov=services -v
 ```
 
 ---
 
 ## Development Guidelines
 
-- **No business logic in API routes** — routes delegate entirely to services.
+- **No business logic in API routes** — routes delegate entirely to
+  services/agents.
 - **Use GitPython** — never execute raw shell commands for Git operations.
 - **All endpoints return JSON** — no HTML responses.
-- **Keep layers separate** — API → Service → Workflow → Utils → Filesystem.
-- **Add docstrings and type hints** to every function.
+- **Agents only talk through `SharedMemory`** — never directly to each
+  other. The Coordinator is the only thing that runs agents.
+- **The Coordinator must not** call LLMs, parse files, generate docs, or
+  touch the vector database directly — see `agents/coordinator/coordinator.py`.
 - **Log every significant operation** using the module-level logger.
 - **Never expose stack traces** in API responses.
-
----
-
-## Future Extensibility
-
-The modular architecture is designed to accommodate:
-
-- AI Code Review Service (plug into `github_service.py` pipeline)
-- LLM Analysis after `parser_service.py`
-- Queue system (Celery / RabbitMQ) between webhook receipt and processing
-- Database persistence (replace JSON files in `workflow_manager.py`)
-- GitHub App Authentication (new middleware or service)
-- Notification Service (post-workflow hook in `workflow_service.py`)

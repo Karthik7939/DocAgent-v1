@@ -179,10 +179,22 @@ class RAGSettings(BaseSettings):
     )
 
     similarity_threshold: float = Field(
-        default=0.30,
+        default=0.05,
         ge=0.0,
         le=1.0,
-        description="Minimum similarity score for retrieval.",
+        description=(
+            "Minimum similarity score for retrieval, applied per-channel "
+            "before RRF fusion. Kept low deliberately: cosine similarity "
+            "from the configured embedding model does not reliably "
+            "separate relevant from irrelevant content for the long, "
+            "multi-topic queries this system sends (verified empirically — "
+            "0.30 discarded genuinely relevant results while still "
+            "admitting some irrelevant ones at lower values, i.e. it "
+            "wasn't a precision/recall tradeoff, just a bad cutoff). "
+            "This threshold only needs to keep the pre-rerank candidate "
+            "pool from exploding; rerank_enabled is the real relevance "
+            "judge — see reranker.py."
+        ),
     )
 
     query_purpose_symbol_ceiling: int = Field(
@@ -249,6 +261,38 @@ class RAGSettings(BaseSettings):
         ge=1,
         description="Constant used in Reciprocal Rank Fusion (RRF).",
     )
+
+    # Reranking
+    #
+    # RRF fusion merges channels by rank position only — each channel's raw
+    # score is discarded, so the fused list has no real relevance judgment,
+    # only "how early did this show up." Reranking scores the fused
+    # candidate pool directly against the query with a cross-encoder before
+    # final truncation to top_k.
+
+    rerank_enabled: bool = Field(
+        default=True,
+        description=(
+            "Rerank the RRF-fused candidate pool with a cross-encoder "
+            "before truncating to top_k, instead of trusting RRF rank "
+            "order alone."
+        ),
+    )
+
+    rerank_model: str = Field(
+        default="cross-encoder/ms-marco-MiniLM-L-6-v2",
+        description="Cross-encoder model used to rerank retrieval candidates.",
+    )
+
+    rerank_candidate_pool: int = Field(
+        default=40,
+        ge=1,
+        description=(
+            "Number of RRF-fused candidates fed to the reranker before "
+            "truncating to top_k. Must be >= top_k to have any effect."
+        ),
+    )
+
 
     # Chunking
 
@@ -347,3 +391,4 @@ class RAGSettings(BaseSettings):
 
 
 settings = RAGSettings()
+

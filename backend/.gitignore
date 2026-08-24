@@ -75,3 +75,9 @@ generated_docs/
 
 # Local runtime files
 *.pid
+
+# Cloned repositories (prevent uvicorn --reload from restarting on new files)
+repositories/
+
+# RAG storage (FAISS/BM25 artifacts — not source code)
+rag/storage/

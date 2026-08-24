@@ -257,6 +257,7 @@ class ValidationReport:
     warnings: list[str] = field(default_factory=list)
     missing_sections: list[str] = field(default_factory=list)
     hallucination_findings: list[str] = field(default_factory=list)
+    consistency_issues: list[str] = field(default_factory=list)
     per_document_scores: dict[str, float] = field(default_factory=dict)
     timestamp: str = ""
 

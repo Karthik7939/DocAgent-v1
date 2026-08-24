@@ -99,7 +99,7 @@ class RevisionAgent:
         warnings: list[str] = []
 
         # Group errors/warnings by file path
-        issues_by_doc = self._group_issues(validation)
+        issues_by_doc = self._group_issues(validation, list(docs.keys()))
 
         for file_path, content in docs.items():
             doc_issues = issues_by_doc.get(file_path, [])
@@ -159,14 +159,19 @@ class RevisionAgent:
     # Issue grouping
     # ------------------------------------------------------------------
 
-    def _group_issues(self, validation) -> dict[str, list[str]]:
+    def _group_issues(self, validation, doc_keys: list[str]) -> dict[str, list[str]]:
         """Group all validation errors by document type.
 
-        Parses errors/warnings that start with 'DocumentType: ...' and
-        groups them so each document gets only its own relevant issues.
+        Matches each issue string against the actual document keys present
+        in shared_memory (e.g. "README.md") by substring containment — the
+        same approach used for formatting_issues below. Issues that don't
+        mention any known document are treated as unattributed and applied
+        to every document.
 
         Args:
             validation: ValidationReport from SharedMemory.
+            doc_keys:   Keys of the documents currently in shared memory
+                        (e.g. ["README.md", "ARCHITECTURE.md", ...]).
 
         Returns:
             dict[str, list[str]]: document_type → list of issue strings.
@@ -176,13 +181,13 @@ class RevisionAgent:
         all_issues = validation.errors + validation.hallucination_findings
 
         for issue in all_issues:
-            # Issues formatted as "DocType: description"
-            if ":" in issue:
-                doc_type = issue.split(":")[0].strip()
-                groups.setdefault(doc_type, []).append(issue)
+            matched = [doc_type for doc_type in doc_keys if doc_type in issue]
+            if matched:
+                for doc_type in matched:
+                    groups.setdefault(doc_type, []).append(issue)
             else:
                 # Unattributed issue — add to all documents
-                for doc_type in ["README", "Architecture", "API"]:
+                for doc_type in doc_keys:
                     groups.setdefault(doc_type, []).append(issue)
 
         return groups
@@ -230,6 +235,21 @@ class RevisionAgent:
                 return revised
             except Exception as exc:
                 logger.warning("LLM revision failed for %s: %s", doc_type, exc)
+
+        if self._llm and formatting_issues:
+            formatting_str = "\n".join(f"- {i}" for i in formatting_issues)
+            prompt = FORMATTING_REVISION_PROMPT.format(
+                document_type=doc_type,
+                formatting_issues=formatting_str,
+                document_content=content[:4000],
+            )
+            try:
+                raw = self._llm.generate(prompt)
+                revised = sanitize_markdown(raw)
+                logger.info("Formatting fixed via LLM: %s", doc_type)
+                return revised
+            except Exception as exc:
+                logger.warning("LLM formatting revision failed for %s: %s", doc_type, exc)
 
         # Fallback: rule-based fixes only
         return self._apply_formatting_rules(content)

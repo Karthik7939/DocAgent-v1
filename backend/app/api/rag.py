@@ -31,6 +31,7 @@ import logging
 import os
 import threading
 import uuid
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import JSONResponse
@@ -123,11 +124,17 @@ class RetrieveRequest(BaseModel):
         le=100,
         description="Maximum number of chunks to return.",
     )
-    similarity_threshold: float = Field(
-        default=0.30,
+    similarity_threshold: float | None = Field(
+        default=None,
         ge=0.0,
         le=1.0,
-        description="Minimum similarity score.",
+        description=(
+            "Minimum similarity score. Defaults to rag.config.settings."
+            "similarity_threshold when omitted, instead of a hardcoded "
+            "value here, so this HTTP endpoint and the internal "
+            "RAGService.retrieve() path (used by understanding_agent.py) "
+            "stay in sync — see rag_fix_plan.md P0.2."
+        ),
     )
 
 
@@ -341,7 +348,7 @@ async def retrieve_context(request: RetrieveRequest) -> JSONResponse:
     )
 
     try:
-        semantic_query = SemanticQuery(
+        query_kwargs: dict[str, Any] = dict(
             repository=request.repository,
             commit_sha=request.commit_sha,
             query_text=request.query_text,
@@ -349,8 +356,14 @@ async def retrieve_context(request: RetrieveRequest) -> JSONResponse:
             modified_symbols=request.modified_symbols,
             keywords=request.keywords,
             top_k=request.top_k,
-            similarity_threshold=request.similarity_threshold,
         )
+        # Only pass similarity_threshold when the caller explicitly set it;
+        # omitting it lets SemanticQuery's own default_factory apply
+        # rag.config.settings.similarity_threshold instead.
+        if request.similarity_threshold is not None:
+            query_kwargs["similarity_threshold"] = request.similarity_threshold
+
+        semantic_query = SemanticQuery(**query_kwargs)
 
         pipeline = RetrievalPipeline(repository=request.repository)
         context_package = pipeline.retrieve(semantic_query)
@@ -368,10 +381,21 @@ async def retrieve_context(request: RetrieveRequest) -> JSONResponse:
         context_package.metadata.total_retrieved_chunks,
     )
 
-    # Serialise the Pydantic model to JSON-compatible dict
+    # Serialise the Pydantic model to JSON-compatible dict. `embedding` is
+    # excluded: it's a 384-float array per chunk (~7-8KB of JSON each) that
+    # no current consumer (understanding_agent.py, context_slicer.py) reads
+    # — they only use .content and .metadata. Still available internally;
+    # just not serialized over this HTTP response.
     return JSONResponse(
         status_code=status.HTTP_200_OK,
-        content=context_package.model_dump(mode="json"),
+        content=context_package.model_dump(
+            mode="json",
+            exclude={
+                "retrieval_results": {
+                    "results": {"__all__": {"chunk": {"embedding"}}},
+                },
+            },
+        ),
     )
 
 
@@ -456,10 +480,255 @@ async def get_rag_status(repository_name: str) -> JSONResponse:
     )
 
 
+# ---------------------------------------------------------------------------
+# Index a repository (clone if needed + bootstrap)
+# ---------------------------------------------------------------------------
+
+class IndexRepoRequest(BaseModel):
+    """Request body for POST /api/rag/index-repo."""
+    repository_name: str = Field(
+        ...,
+        description="Full repository name, e.g. 'owner/repo'.",
+    )
+    clone_url: str = Field(
+        default="",
+        description=(
+            "Git clone URL. If omitted, defaults to "
+            "'https://github.com/{repository_name}.git'."
+        ),
+    )
+
+
+@router.post(
+    "/index-repo",
+    status_code=status.HTTP_202_ACCEPTED,
+    summary="Clone & Index a Repository into the Knowledge Base",
+    description=(
+        "Clones the repository locally if not already present, then runs a full "
+        "bootstrap index (chunking, embeddings, Pinecone/FAISS upsert). "
+        "This lets you add any connected repo to the knowledge base without "
+        "waiting for a GitHub push webhook to fire. Returns immediately; "
+        "indexing runs in the background."
+    ),
+    tags=["RAG"],
+)
+async def index_repo(request: IndexRepoRequest) -> JSONResponse:
+    """
+    Clone (if necessary) + bootstrap a repository into the RAG knowledge base.
+
+    Spawns ``scripts/run_index_repo.py`` as a fully detached subprocess so
+    that uvicorn --reload cannot kill the job when new .py files appear in
+    repositories/ during the git clone.
+
+    Args:
+        request: IndexRepoRequest with repository_name and optional clone_url.
+
+    Returns:
+        202 Accepted immediately; detached subprocess performs clone + index.
+    """
+    import subprocess
+    import sys
+    from pathlib import Path
+    from app.core.config import settings as app_settings
+
+    repo_name = request.repository_name.strip()
+    clone_url = request.clone_url.strip() or f"https://github.com/{repo_name}.git"
+
+    slug = repo_name.replace("/", "_")
+    repo_root = Path(app_settings.repository_root)
+    local_path = str((repo_root / slug).resolve())
+
+    # Ensure repo root dir exists before spawning the subprocess
+    repo_root.mkdir(parents=True, exist_ok=True)
+
+    logger.info(
+        "index-repo: spawning detached subprocess  repo=%s  clone=%s  dest=%s",
+        repo_name, clone_url, local_path,
+    )
+
+    # Path to the standalone indexing script (lives next to this package)
+    _backend_root = Path(__file__).resolve().parent.parent.parent  # backend/
+    script_path = str(_backend_root / "scripts" / "run_index_repo.py")
+
+    # On Windows, prefer pythonw.exe (the windowless GUI-subsystem build that
+    # ships alongside python.exe in every venv/install) over sys.executable.
+    # DETACHED_PROCESS is supposed to suppress the console, but on Windows 11
+    # the OS's "default terminal application" setting can still surface a
+    # console-subsystem child (python.exe) in a visible window regardless of
+    # creation flags. pythonw.exe never allocates a console in the first
+    # place, so it isn't subject to that behavior at all.
+    python_exe = sys.executable
+    if sys.platform == "win32":
+        pythonw = Path(sys.executable).with_name("pythonw.exe")
+        if pythonw.exists():
+            python_exe = str(pythonw)
+
+    cmd = [python_exe, script_path, repo_name, clone_url, local_path]
+
+    try:
+        if sys.platform == "win32":
+            # DETACHED_PROCESS (0x00000008) + CREATE_NEW_PROCESS_GROUP (0x00000200)
+            # detach from this process's console/signals. CREATE_BREAKAWAY_FROM_JOB
+            # (0x01000000) is also required: when uvicorn is launched from a terminal
+            # (VS Code, Windows Terminal, etc.), Windows assigns it to a Job Object
+            # with "kill on job close" semantics, and child processes are added to
+            # that same job by default even when DETACHED_PROCESS is set. Without
+            # breakaway, the "detached" subprocess is still silently killed if the
+            # parent job is torn down. If the job doesn't permit breakaway, Popen
+            # raises OSError — retry without the flag rather than failing the request.
+            DETACHED_PROCESS = 0x00000008
+            CREATE_NEW_PROCESS_GROUP = 0x00000200
+            CREATE_BREAKAWAY_FROM_JOB = 0x01000000
+            # The child inherits its own duplicated copy of this fd on
+            # Popen(); the parent's handle must be closed afterward or it
+            # leaks for the lifetime of this long-running uvicorn worker
+            # (one leaked fd per "Add to KB" click).
+            log_file = open(str(_backend_root / "logs" / f"index_repo_{slug}.log"), "w")
+            try:
+                try:
+                    subprocess.Popen(
+                        cmd,
+                        creationflags=(
+                            DETACHED_PROCESS
+                            | CREATE_NEW_PROCESS_GROUP
+                            | CREATE_BREAKAWAY_FROM_JOB
+                        ),
+                        close_fds=True,
+                        stdout=log_file,
+                        stderr=subprocess.STDOUT,
+                    )
+                except OSError:
+                    logger.warning(
+                        "index-repo: CREATE_BREAKAWAY_FROM_JOB rejected by parent job "
+                        "for '%s' — retrying without breakaway (subprocess may not "
+                        "survive a parent reload).",
+                        repo_name,
+                    )
+                    subprocess.Popen(
+                        cmd,
+                        creationflags=DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP,
+                        close_fds=True,
+                        stdout=log_file,
+                        stderr=subprocess.STDOUT,
+                    )
+            finally:
+                log_file.close()
+        else:
+            # On Unix: start a new session so the process is fully detached
+            log_file = open(str(_backend_root / "logs" / f"index_repo_{slug}.log"), "w")
+            try:
+                subprocess.Popen(
+                    cmd,
+                    start_new_session=True,
+                    close_fds=True,
+                    stdout=log_file,
+                    stderr=subprocess.STDOUT,
+                )
+            finally:
+                log_file.close()
+        logger.info("index-repo: detached subprocess launched for '%s'", repo_name)
+    except Exception as exc:
+        logger.error("index-repo: failed to spawn subprocess for '%s': %s", repo_name, exc)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to start indexing subprocess: {exc}",
+        ) from exc
+
+    return JSONResponse(
+        status_code=202,
+        content={
+            "status": "accepted",
+            "message": (
+                f"Cloning and indexing '{repo_name}' in the background. "
+                "This may take 1-3 minutes. Refresh the Knowledge Base list to see it appear."
+            ),
+            "repository": repo_name,
+            "log_file": f"logs/index_repo_{slug}.log",
+        },
+    )
+
+
+
 # Module-level cache for knowledge base listing to prevent Pinecone network hangs
 _kb_cache_data: dict = {}
 _kb_cache_timestamp: float = 0.0
 _KB_CACHE_TTL: float = 30.0
+
+
+
+@router.get(
+    "/repos",
+    status_code=status.HTTP_200_OK,
+    summary="List All Repositories with RAG Status",
+    description=(
+        "Returns all locally cloned repositories (from the repositories/ directory) "
+        "along with their RAG indexing status in the vector store. "
+        "Use this to populate the Knowledge Base page with repos that can be added."
+    ),
+    tags=["RAG"],
+)
+async def list_repos_with_rag_status() -> JSONResponse:
+    """
+    Return all local repositories and whether they are indexed in the knowledge base.
+
+    Scans the repositories/ directory for cloned repos, then cross-references
+    each repo against the Pinecone namespace stats to determine indexed status.
+    """
+    from pathlib import Path
+    from app.core.config import settings as app_settings
+
+    rag_settings = RAGSettings()
+    backend = rag_settings.vector_store_backend
+
+    # Build a map of namespace → vector_count from Pinecone
+    indexed_namespaces: dict[str, int] = {}
+    try:
+        if backend == "pinecone":
+            import asyncio
+            from concurrent.futures import ThreadPoolExecutor
+            from pinecone import Pinecone  # type: ignore[import-untyped]
+
+            api_key = rag_settings.pinecone_api_key
+            index_name = rag_settings.pinecone_index_name
+            if api_key and index_name:
+                def _fetch():
+                    pc = Pinecone(api_key=api_key)
+                    idx = pc.Index(index_name)
+                    return idx.describe_index_stats()
+
+                loop = asyncio.get_running_loop()
+                with ThreadPoolExecutor(max_workers=1) as pool:
+                    stats = await asyncio.wait_for(
+                        loop.run_in_executor(pool, _fetch),
+                        timeout=12.0,
+                    )
+                for ns, ns_info in (stats.namespaces or {}).items():
+                    indexed_namespaces[ns] = ns_info.vector_count or 0
+    except Exception as exc:
+        logger.warning("list_repos_with_rag_status: Pinecone stats fetch failed: %s", exc)
+
+    # Scan local repositories/ directory
+    repo_root = Path(app_settings.repository_root)
+    repos = []
+    if repo_root.exists():
+        for entry in sorted(repo_root.iterdir()):
+            if not entry.is_dir():
+                continue
+            # Convert "owner_repo-name" → "owner/repo-name" (first underscore only)
+            repo_name = entry.name.replace("_", "/", 1)
+            vector_count = indexed_namespaces.get(repo_name, 0)
+            repos.append({
+                "repository": repo_name,
+                "local_path": str(entry.resolve()),
+                "indexed": vector_count > 0,
+                "vector_count": vector_count,
+                "backend": backend,
+            })
+
+    return JSONResponse(
+        status_code=status.HTTP_200_OK,
+        content={"repos": repos, "backend": backend},
+    )
 
 
 @router.get(
@@ -612,12 +881,22 @@ async def delete_knowledge_base_repo(repository_name: str) -> JSONResponse:
     """
     Delete a repository from the RAG knowledge base.
     """
+    global _kb_cache_data, _kb_cache_timestamp
+
     success = _rag_service.delete_repository(repository_name)
     if not success:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to delete repository '{repository_name}' from knowledge base.",
         )
+
+    # Invalidate the KB list cache so the UI reflects the deletion immediately
+    # (without this, the deleted repo would still appear for up to _KB_CACHE_TTL seconds,
+    # causing users to retry the delete which then fails with Pinecone 404 → 500).
+    _kb_cache_data = {}
+    _kb_cache_timestamp = 0.0
+    logger.info("Knowledge base cache invalidated after deleting '%s'", repository_name)
+
     return JSONResponse(
         status_code=status.HTTP_200_OK,
         content={"status": "deleted", "repository": repository_name},

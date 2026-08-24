@@ -81,37 +81,27 @@ export default function RepoCard({ repo }: { repo: Repo }) {
   }
 
   // ── Index Status Badge ──────────────────────────────────────────────────
-  function IndexBadge() {
-    if (loadingStatus) {
-      return (
-        <span className="inline-flex items-center gap-1.5 text-xs px-2 py-0.5 rounded-full font-medium bg-[#f0e9dc] text-[#7a6c5a]">
-          <span className="w-1.5 h-1.5 rounded-full bg-[#c4ac8e] animate-pulse" />
-          Checking…
-        </span>
-      );
-    }
-
-    if (!indexStatus || !indexStatus.indexed) {
-      return (
-        <span className="inline-flex items-center gap-1.5 text-xs px-2 py-0.5 rounded-full font-medium bg-[#f0e9dc] text-[#7a6c5a]">
-          <span className="w-1.5 h-1.5 rounded-full bg-[#c4ac8e]" />
-          Not indexed
-        </span>
-      );
-    }
-
-    return (
-      <span
-        className="inline-flex items-center gap-1.5 text-xs px-2 py-0.5 rounded-full font-medium bg-[#e8f4f0] text-[#39705e]"
-        title={`${indexStatus.vector_count} vectors in Pinecone (${indexStatus.backend})`}
-      >
-        <span className="w-1.5 h-1.5 rounded-full bg-[#39705e]" />
-        {indexStatus.vector_count > 0
-          ? `${indexStatus.vector_count} vectors`
-          : "Indexed"}
-      </span>
-    );
-  }
+  const indexBadge = loadingStatus ? (
+    <span className="inline-flex items-center gap-1.5 text-xs px-2 py-0.5 rounded-full font-medium bg-[#f0e9dc] text-[#7a6c5a]">
+      <span className="w-1.5 h-1.5 rounded-full bg-[#c4ac8e] animate-pulse" />
+      Checking…
+    </span>
+  ) : !indexStatus || !indexStatus.indexed ? (
+    <span className="inline-flex items-center gap-1.5 text-xs px-2 py-0.5 rounded-full font-medium bg-[#f0e9dc] text-[#7a6c5a]">
+      <span className="w-1.5 h-1.5 rounded-full bg-[#c4ac8e]" />
+      Not indexed
+    </span>
+  ) : (
+    <span
+      className="inline-flex items-center gap-1.5 text-xs px-2 py-0.5 rounded-full font-medium bg-[#e8f4f0] text-[#39705e]"
+      title={`${indexStatus.vector_count} vectors in Pinecone (${indexStatus.backend})`}
+    >
+      <span className="w-1.5 h-1.5 rounded-full bg-[#39705e]" />
+      {indexStatus.vector_count > 0
+        ? `${indexStatus.vector_count} vectors`
+        : "Indexed"}
+    </span>
+  );
 
   // ── Bootstrap Button ────────────────────────────────────────────────────
   const bootstrapConfig = {
@@ -141,19 +131,25 @@ export default function RepoCard({ repo }: { repo: Repo }) {
 
         {/* Right — badges + button */}
         <div className="flex flex-wrap items-center gap-2 shrink-0 justify-end">
-          {/* Webhook badge — real status based on whether repo is in db */}
+          {/* Webhook badge — reflects whether a GitHub push event has
+              actually been received and processed for this repo */}
           <span
             className={`text-xs px-2 py-0.5 rounded-full font-medium ${
               repo.webhookActive
                 ? "bg-green-50 text-green-700"
                 : "bg-gray-100 text-gray-600"
             }`}
+            title={
+              repo.webhookActive && repo.lastWebhookAt
+                ? `Last event received ${new Date(repo.lastWebhookAt).toLocaleString()}`
+                : "No webhook event received yet"
+            }
           >
-            {repo.webhookActive ? "Webhook active" : "Inactive"}
+            {repo.webhookActive ? "Webhook active" : "Awaiting webhook"}
           </span>
 
           {/* Real index status badge */}
-          <IndexBadge />
+          {indexBadge}
 
           {/* Bootstrap button */}
           <button

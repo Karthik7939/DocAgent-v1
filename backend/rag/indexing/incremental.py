@@ -275,7 +275,9 @@ class IncrementalIndexer:
 
             # 8. Persist Indexes with Transaction safety
             persist_start = time.time()
-            self.refresh_indexes()
+            self.refresh_indexes(
+                rollback_chunk_ids=[c.metadata.chunk_id for c in embedded_chunks],
+            )
             persist_time = time.time() - persist_start
 
             # Check physical rebuild threshold
@@ -399,20 +401,64 @@ class IncrementalIndexer:
         else:
             logger.info("Indexes are fully synchronized.")
 
-    def refresh_indexes(self) -> None:
+    def refresh_indexes(self, rollback_chunk_ids: Optional[list[str]] = None) -> None:
         """
         Saves indexing stores to disk with transaction support.
 
         For Pinecone: vectors are already in the cloud; only the sidecar,
         BM25, and dependency graph need saving locally.
         For FAISS: the full transactional file-backup logic runs.
+
+        Args:
+            rollback_chunk_ids: Chunk IDs upserted to Pinecone earlier in
+                this same update() call (via add_batch), passed so that if
+                the sidecar save specifically fails, those vectors can be
+                deleted from Pinecone to keep the cloud index consistent
+                with the local sidecar that's the source of truth for
+                "what chunks exist." Only used on the Pinecone backend.
         """
         persistence = GraphPersistence()
         is_pinecone = settings.vector_store_backend.strip().lower() == "pinecone"
 
         if is_pinecone:
+            # The sidecar is the only local record of which Pinecone vectors
+            # are "real" chunks (Pinecone metadata itself is deliberately
+            # lightweight — full content lives only in the sidecar). If
+            # *this* save fails, the vectors just upserted by add_batch()
+            # are live in Pinecone but invisible to this store's own
+            # bookkeeping — roll them back to restore the pre-update state,
+            # matching what the FAISS backup/restore path achieves.
             try:
-                self.vector_store.save()   # sidecar with full chunk content
+                self.vector_store.save()
+            except Exception as e:
+                logger.error("Failed to save Pinecone sidecar. Error: %s", e)
+                if rollback_chunk_ids:
+                    logger.warning(
+                        "Rolling back %d chunk(s) upserted to Pinecone this "
+                        "run, since the sidecar that tracks them failed to "
+                        "save: %s",
+                        len(rollback_chunk_ids), rollback_chunk_ids,
+                    )
+                    for chunk_id in rollback_chunk_ids:
+                        try:
+                            self.vector_store.delete(chunk_id, soft=False)
+                        except Exception as rollback_exc:
+                            logger.error(
+                                "Rollback failed for chunk '%s': %s — it may "
+                                "now be live in Pinecone with no local "
+                                "record. Run IncrementalIndexer.sync() to "
+                                "detect and repair.",
+                                chunk_id, rollback_exc,
+                            )
+                raise RuntimeError(
+                    f"Incremental Pinecone refresh failed (sidecar save): {e}"
+                ) from e
+
+            # Sidecar saved successfully — Pinecone and the sidecar are now
+            # mutually consistent. A failure below only affects BM25/graph/
+            # model-info, which are independently repairable (sync() for
+            # BM25) without touching Pinecone, so no rollback here.
+            try:
                 self.keyword_store.save()
 
                 if hasattr(self, "_graph_to_persist") and self._graph_to_persist:
@@ -428,9 +474,12 @@ class IncrementalIndexer:
                 )
             except Exception as e:
                 logger.error(
-                    "Failed to refresh Pinecone indexes. Error: %s", e
+                    "Pinecone sidecar saved, but BM25/graph/model-info save "
+                    "failed afterward: %s", e
                 )
-                raise RuntimeError(f"Incremental Pinecone refresh failed: {e}") from e
+                raise RuntimeError(
+                    f"Incremental Pinecone refresh failed (secondary stores): {e}"
+                ) from e
             return
 
         # FAISS backend — transactional file backup

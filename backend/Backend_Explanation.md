@@ -45,8 +45,9 @@ backend/
 │   ├── repository_service.py    ← Manages the repositories/ folder
 │   └── workflow_service.py      ← Saves/loads workflow state to/from disk
 │
-├── rag/
-│   └── rag.py                   ← RAG service (ready, not connected yet)
+├── rag/                          ← Full RAG engine (chunking, embeddings,
+│                                    retrieval, indexing) — see §7 below
+│                                    and rag/RAG_WALKTHROUGH.md
 │
 ├── workflow/
 │   ├── workflow_manager.py      ← Creates, saves, loads workflow JSON files
@@ -431,23 +432,23 @@ This is pure Python — no external libraries needed.
 
 ---
 
-## 7. RAG Service — `rag/rag.py`
+## 7. RAG Service — `rag/` + `services/rag_service.py`
 
-**Status: Ready but not connected yet.**
+**Status: fully built and connected.** (This section previously described
+an early prototype — 100-line keyword-overlap chunking — that no longer
+exists. The real system is substantially larger: AST-based semantic
+chunking via Tree-sitter, sentence-transformers embeddings, a hybrid
+retriever combining Pinecone/FAISS vector search + BM25 keyword search +
+dependency-graph traversal via Reciprocal Rank Fusion, a cross-encoder
+reranker, and MMR-based context diversity. `UnderstandingAgent` is wired
+to it via `rag_service`/`shared_memory.rag_context_package` as described
+in `agent_explanation.md`.)
 
-The RAG (Retrieval-Augmented Generation) service will:
-1. Read all source files in the repository.
-2. Split them into small chunks (100 lines each).
-3. Score each chunk's relevance to a query using keyword overlap
-   (will be upgraded to vector embeddings later).
-4. Return the top-k most relevant chunks with a formatted context string.
-
-To connect it when ready, update `dependencies.py`:
-```python
-from rag.rag import RAGService
-rag = RAGService(top_k=5)
-understanding = UnderstandingAgent(rag_service=rag, llm_client=llm_service)
-```
+For the full workflow-by-workflow walkthrough (bootstrap, incremental
+updates, retrieval, and how it all connects to the agents — in plain
+words), see `rag/RAG_WALKTHROUGH.md`.
+For the RAG pipeline's known issues, fixes, and design decisions made
+along the way, see `rag_fix_plan.md`.
 
 ---
 

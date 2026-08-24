@@ -7,9 +7,24 @@ FAISS and BM25 indexing stores.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from rag.retrieval.keyword_store import KeywordStore
-from rag.retrieval.vector_store import VectorStore
 from rag.utils import get_logger
+
+if TYPE_CHECKING:
+    # Deferred: VectorStore (rag.retrieval.vector_store) imports faiss at
+    # module level. Importing it here unconditionally pulled faiss into
+    # every process that uses BootstrapPipeline (via rag.indexing.__init__
+    # -> incremental -> invalidation), even when RAG_VECTOR_STORE_BACKEND
+    # is "pinecone" and faiss is never actually used. Loading faiss's
+    # native BLAS/OpenMP runtime before sentence-transformers/scipy get
+    # imported was corrupting scipy's import state for the rest of the
+    # process (AttributeError: module 'scipy' has no attribute '_lib' on
+    # every subsequent embedding call). This annotation-only usage below
+    # doesn't need VectorStore at runtime since __future__ annotations
+    # are lazy strings.
+    from rag.retrieval.vector_store import VectorStore
 
 logger = get_logger(__name__)
 

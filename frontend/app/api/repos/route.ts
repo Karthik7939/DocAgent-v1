@@ -16,7 +16,9 @@ export async function POST(req: NextRequest) {
     name,
     fullName: `${owner}/${name}`,
     connectedAt: new Date().toISOString(),
-    webhookActive: true,
+    // Not yet confirmed — flips to true once a GitHub webhook event is
+    // actually received and processed for this repo (see /api/webhook).
+    webhookActive: false,
     gitbookSpaceId,
   };
 

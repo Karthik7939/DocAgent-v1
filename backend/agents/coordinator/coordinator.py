@@ -39,7 +39,7 @@ The Coordinator MUST NOT:
 import logging
 import time
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Optional, cast
 
 from langgraph.graph import StateGraph, END
 
@@ -327,7 +327,7 @@ class Coordinator:
         """LangGraph node: run DocumentationPlanningAgent."""
         from agents.documentation.planner_agent import DocumentationPlanningAgent
         planner = DocumentationPlanningAgent()
-        return self._run_node(state, AgentName.DOCUMENTATION, planner)
+        return self._run_node(state, AgentName.PLANNER, planner)
 
     def _documentation_node(self, state: PipelineState) -> dict:
         """LangGraph node: run DocumentationAgent."""
@@ -573,7 +573,14 @@ class Coordinator:
         # --- Run the LangGraph graph ---
         try:
             logger.info("LangGraph: starting graph execution (id=%s)", wf_id)
-            final_state: PipelineState = self._graph.invoke(initial_state)
+            # self._graph.invoke() returns a plain dict at the type level
+            # (LangGraph's CompiledGraph.invoke is not generic over our
+            # TypedDict); cast is safe here because every node merges back
+            # into the same PipelineState-shaped dict the graph was seeded
+            # with in initial_state above.
+            final_state: PipelineState = cast(
+                PipelineState, self._graph.invoke(initial_state)
+            )
             logger.info("LangGraph: graph execution complete (id=%s)", wf_id)
         except Exception as exc:
             logger.exception("LangGraph execution raised an exception: %s", exc)

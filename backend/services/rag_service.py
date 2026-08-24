@@ -159,9 +159,22 @@ class RAGService:
                 if settings.pinecone_api_key and settings.pinecone_index_name:
                     pc = Pinecone(api_key=settings.pinecone_api_key)
                     index = pc.Index(settings.pinecone_index_name)
-                    # Delete all vectors in this namespace
-                    index.delete(delete_all=True, namespace=repository_name)
-                    logger.info("RAGService: cleared Pinecone namespace '%s'", repository_name)
+                    # Delete all vectors in this namespace.
+                    # Pinecone raises a 404 if the namespace doesn't exist (already
+                    # deleted or never indexed). Treat that as a no-op success.
+                    try:
+                        index.delete(delete_all=True, namespace=repository_name)
+                        logger.info("RAGService: cleared Pinecone namespace '%s'", repository_name)
+                    except Exception as pinecone_exc:
+                        err_str = str(pinecone_exc)
+                        if "404" in err_str or "Namespace not found" in err_str:
+                            logger.warning(
+                                "RAGService: Pinecone namespace '%s' not found — "
+                                "already deleted or never indexed (treating as success).",
+                                repository_name,
+                            )
+                        else:
+                            raise
 
                 # Delete local sidecar
                 sidecar_dir = settings.storage_root / "pinecone" / slug

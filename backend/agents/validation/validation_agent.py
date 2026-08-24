@@ -141,8 +141,16 @@ class ValidationAgent:
             self._validate_content_with_llm(shared_memory, doc_results)
             logger.info("LLM content validation completed")
 
+        # 2.5 — Cross-document consistency check (if LLM is available)
+        consistency_issues = self._validate_cross_document_consistency(shared_memory)
+        if consistency_issues:
+            logger.info(
+                "Cross-document consistency check found %d issue(s)",
+                len(consistency_issues),
+            )
+
         # 3 — Compute overall score
-        overall_score = self._compute_overall_score(doc_results)
+        overall_score = self._compute_overall_score(doc_results, consistency_issues)
 
         # 4 — Determine status
         if overall_score >= WARN_THRESHOLD:
@@ -153,7 +161,14 @@ class ValidationAgent:
             status = "FAILED"
 
         # 5 — Aggregate results
-        all_errors = [e for r in doc_results for e in r.errors]
+        # Consistency findings are prefixed and folded into `errors` (not
+        # kept separate) so RevisionAgent._group_issues — which attributes
+        # an issue to a document by checking whether that document's key
+        # (e.g. "README.md") appears as a substring of the issue string —
+        # automatically routes each contradiction to both documents it
+        # names, without any RevisionAgent changes.
+        consistency_errors = [f"Consistency: {c}" for c in consistency_issues]
+        all_errors = [e for r in doc_results for e in r.errors] + consistency_errors
         all_warnings = [w for r in doc_results for w in r.warnings]
         all_missing = [m for r in doc_results for m in r.missing_sections]
         all_hallucinations = [h for r in doc_results for h in r.hallucinations]
@@ -172,6 +187,7 @@ class ValidationAgent:
             warnings=all_warnings,
             missing_sections=all_missing,
             hallucination_findings=all_hallucinations,
+            consistency_issues=consistency_issues,
             per_document_scores=per_doc_scores,
             timestamp=_now(),
         )
@@ -255,7 +271,7 @@ class ValidationAgent:
         formatting_score = max(0.0, 100.0 - deductions)
 
         # Completeness score based on missing sections
-        total_expected = len(FILE_DOC_EXPECTED_SECTIONS)
+        total_expected = len(expected)
         completeness_score = max(
             0.0, 100.0 - (len(missing) / total_expected) * 100
         ) if total_expected else 100.0
@@ -285,6 +301,12 @@ class ValidationAgent:
             shared_memory: Full shared memory.
             doc_results:   List of structural results to update.
         """
+        llm = self._llm
+        if llm is None:
+            # Callers only invoke this when self._llm is truthy (see run()),
+            # but guard locally too so this method is safe standalone.
+            return
+
         meta = shared_memory.metadata
         und = shared_memory.understanding
         repo = shared_memory.repository
@@ -315,7 +337,7 @@ class ValidationAgent:
             )
 
             try:
-                raw = self._llm.generate(prompt)
+                raw = llm.generate(prompt)
                 self._parse_llm_validation(raw, result)
             except Exception as exc:
                 logger.warning(
@@ -361,22 +383,113 @@ class ValidationAgent:
             result.summary = summary_match.group(1).strip()
 
     # ------------------------------------------------------------------
+    # Cross-document consistency check
+    # ------------------------------------------------------------------
+
+    def _validate_cross_document_consistency(
+        self, shared_memory: SharedMemory
+    ) -> list[str]:
+        """Use the LLM to check README/Architecture/API docs for contradictions.
+
+        Only runs when both README.md and ARCHITECTURE.md were generated —
+        checking a document against itself, or against a document that
+        doesn't exist, can't surface a real contradiction.
+
+        Args:
+            shared_memory: Full shared memory.
+
+        Returns:
+            list[str]: Human-readable contradiction descriptions, formatted
+            as "<doc_a> vs <doc_b>: <description>".
+        """
+        llm = self._llm
+        if llm is None:
+            return []
+
+        docs = shared_memory.documentation.file_docs
+        readme = docs.get("README.md", "")
+        architecture = docs.get("ARCHITECTURE.md", "")
+        if not readme.strip() or not architecture.strip():
+            return []
+
+        und = shared_memory.understanding
+        apis_str = ", ".join(f"{e.method} {e.route}" for e in und.apis) or "None"
+        repo = shared_memory.repository
+
+        prompt = CONSISTENCY_VALIDATION_PROMPT.format(
+            repository_name=repo.full_name or repo.name,
+            readme_excerpt=readme[:2500],
+            architecture_excerpt=architecture[:2500],
+            api_excerpt=apis_str,
+        )
+
+        try:
+            raw = llm.generate(prompt)
+        except Exception as exc:
+            logger.warning("Cross-document consistency check failed: %s", exc)
+            return []
+
+        return self._parse_consistency_findings(raw)
+
+    @staticmethod
+    def _parse_consistency_findings(raw: str) -> list[str]:
+        """Parse the CONSISTENCY_VALIDATION_PROMPT response.
+
+        Format: CONTRADICTION | DOCUMENT_A | DOCUMENT_B | DESCRIPTION
+
+        Args:
+            raw: Raw LLM response text.
+
+        Returns:
+            list[str]: "<doc_a> vs <doc_b>: <description>" per contradiction.
+        """
+        if "NO_CONTRADICTIONS" in raw:
+            return []
+
+        findings: list[str] = []
+        for line in raw.splitlines():
+            line = line.strip()
+            if not line or line.startswith("#") or line.startswith("```"):
+                continue
+            if re.match(r"^\|?[\s\-:|]+\|?$", line):
+                continue
+            parts = [p.strip() for p in line.split("|") if p.strip()]
+            if not parts or parts[0].upper() != "CONTRADICTION":
+                continue
+            if len(parts) < 4:
+                continue
+            # Skip an echoed header row: the sentinel word "CONTRADICTION"
+            # doubles as the literal header cell in this prompt's format
+            # spec, so a real row is distinguished by DOCUMENT_A/DOCUMENT_B
+            # not being the literal placeholder names.
+            if parts[1].upper() == "DOCUMENT_A" and parts[2].upper() == "DOCUMENT_B":
+                continue
+            findings.append(f"{parts[1]} vs {parts[2]}: {parts[3]}")
+        return findings
+
+    # ------------------------------------------------------------------
     # Score computation
     # ------------------------------------------------------------------
 
     def _compute_overall_score(
-        self, doc_results: list[DocumentValidationResult]
+        self,
+        doc_results: list[DocumentValidationResult],
+        consistency_issues: list[str] | None = None,
     ) -> float:
         """Compute the weighted overall quality score.
 
         Args:
-            doc_results: Per-document validation results.
+            doc_results:        Per-document validation results.
+            consistency_issues: Cross-document contradictions found by
+                                 _validate_cross_document_consistency.
 
         Returns:
             float: Score from 0 to 100, rounded to one decimal place.
         """
         if not doc_results:
             return 0.0
+
+        consistency_issues = consistency_issues or []
 
         avg_completeness = sum(r.completeness_score for r in doc_results) / len(doc_results)
         avg_accuracy = sum(r.accuracy_score for r in doc_results) / len(doc_results)
@@ -386,17 +499,28 @@ class ValidationAgent:
         total_warnings = sum(len(r.warnings) for r in doc_results)
         readability = max(0.0, 100.0 - total_warnings * 5)
 
-        # Consistency: penalise hallucinations
+        # Consistency: penalise hallucinations and cross-document contradictions
         total_hallucinations = sum(len(r.hallucinations) for r in doc_results)
-        consistency = max(0.0, 100.0 - total_hallucinations * 10)
+        consistency = max(
+            0.0,
+            100.0 - total_hallucinations * 10 - len(consistency_issues) * 15,
+        )
 
+        # NOTE: WEIGHT_COVERAGE has no corresponding computed score, so it is
+        # excluded here. Normalise by the sum of weights actually applied —
+        # otherwise the weights below sum to 0.90 instead of 1.0 and every
+        # score is deflated by 10 points regardless of document quality.
+        applied_weight_sum = (
+            WEIGHT_COMPLETENESS + WEIGHT_ACCURACY + WEIGHT_CONSISTENCY
+            + WEIGHT_MARKDOWN + WEIGHT_READABILITY
+        )
         score = (
             avg_completeness * WEIGHT_COMPLETENESS
             + avg_accuracy * WEIGHT_ACCURACY
             + consistency * WEIGHT_CONSISTENCY
             + avg_formatting * WEIGHT_MARKDOWN
             + readability * WEIGHT_READABILITY
-        )
+        ) / applied_weight_sum
         return round(min(score, 100.0), 1)
 
 

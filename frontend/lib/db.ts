@@ -111,13 +111,17 @@ export const db = {
         for (const repoName of backendRepos) {
           if (!repoSet.has(repoName)) {
             const repoId = repoName.replace("/", "_");
+            const [owner, name] = repoName.includes("/")
+              ? repoName.split("/", 2)
+              : ["", repoName];
             const repoObj: Repo = {
               id: repoId,
+              owner,
+              name,
               fullName: repoName,
-              url: `https://github.com/${repoName}`,
+              connectedAt: new Date().toISOString(),
+              webhookActive: false,
               gitbookSpaceId: "",
-              status: "connected",
-              createdAt: new Date().toISOString(),
             };
             repoSet.set(repoName, repoObj);
           }
@@ -144,6 +148,25 @@ export const db = {
     repos.push(repo);
     saveRepos(repos);
     return repo;
+  },
+
+  /**
+   * Mark a repo's webhook as actively receiving events. Called by the
+   * webhook receiver route whenever a valid GitHub event is processed for
+   * a known repo, so the "Webhook active" badge reflects reality instead
+   * of being hardcoded true at connect time.
+   */
+  markWebhookReceived: async (fullName: string): Promise<Repo | undefined> => {
+    const repos = readRepos();
+    const idx = repos.findIndex((r) => r.fullName === fullName);
+    if (idx === -1) return undefined;
+    repos[idx] = {
+      ...repos[idx],
+      webhookActive: true,
+      lastWebhookAt: new Date().toISOString(),
+    };
+    saveRepos(repos);
+    return repos[idx];
   },
 
   // ── Docs ─────────────────────────────────────────────────────────────────

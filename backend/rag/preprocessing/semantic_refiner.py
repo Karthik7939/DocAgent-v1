@@ -3,8 +3,13 @@ Semantic refinement for documentation retrieval queries.
 
 This module is intentionally downstream of static analysis. It does not parse
 source code and it does not decide what changed. It receives a structured
-semantic evidence packet and optionally asks a local Ollama model to translate
-that evidence into documentation-oriented retrieval terminology.
+semantic evidence packet and optionally asks an LLM to translate that
+evidence into documentation-oriented retrieval terminology.
+
+Only runs for providers in _SUPPORTED_PROVIDERS (deliberately not "any
+configured provider"): this makes one extra LLM call per commit-driven
+retrieval, so it's opt-in per provider rather than automatically enabled
+for every paid API this system might be configured to use.
 """
 
 from __future__ import annotations
@@ -18,10 +23,16 @@ from rag.utils import get_logger
 
 logger = get_logger(__name__)
 
+# Providers semantic query refinement is allowed to run on. "ollama" stays
+# supported for anyone running it locally (free, no rate limits); "gemini"
+# was added deliberately (not a blanket "any provider") because this
+# deployment uses Gemini and explicitly opted in to spending the extra call.
+_SUPPORTED_PROVIDERS = {"ollama", "gemini"}
+
 
 class SemanticQueryRefiner:
     """
-    Optional local-LLM semantic refinement for retrieval query assembly.
+    Optional LLM-based semantic refinement for retrieval query assembly.
     """
 
     _FIELDS = {
@@ -48,9 +59,12 @@ class SemanticQueryRefiner:
         if not settings.enable_semantic_query_refinement:
             return {}
 
-        if settings.llm_provider.lower() != "ollama":
+        provider = settings.llm_provider.lower()
+        if provider not in _SUPPORTED_PROVIDERS:
             logger.info(
-                "Semantic query refinement skipped: provider is not local Ollama."
+                "Semantic query refinement skipped: provider '%s' not enabled "
+                "for refinement (supported: %s).",
+                provider, ", ".join(sorted(_SUPPORTED_PROVIDERS)),
             )
             return {}
 
@@ -62,7 +76,9 @@ class SemanticQueryRefiner:
 
         try:
             if not llm.health_check():
-                logger.info("Semantic query refinement skipped: Ollama unavailable.")
+                logger.info(
+                    "Semantic query refinement skipped: %s unavailable.", provider
+                )
                 return {}
         except Exception as exc:
             logger.info("Semantic query refinement health check failed: %s", exc)

@@ -36,5 +36,7 @@ export async function POST(req: NextRequest) {
     commitSha,
   });
 
+  await db.markWebhookReceived(repo.fullName);
+
   return NextResponse.json({ status: "generation triggered" });
 }

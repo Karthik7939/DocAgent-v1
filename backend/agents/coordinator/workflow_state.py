@@ -64,6 +64,7 @@ class AgentName(str, Enum):
 
     PREPROCESSING = "PreprocessingAgent"
     UNDERSTANDING = "UnderstandingAgent"
+    PLANNER = "DocumentationPlanningAgent"
     DOCUMENTATION = "DocumentationAgent"
     VALIDATION = "ValidationAgent"
     REVISION = "RevisionAgent"
@@ -220,13 +221,17 @@ class AgentWorkflowState:
 # LangGraph Pipeline State
 # ---------------------------------------------------------------------------
 
-class PipelineState(TypedDict, total=False):
+class PipelineState(TypedDict):
     """
     LangGraph StateGraph schema — the shared state that flows through every node.
 
-    Each node receives the current PipelineState and returns a *partial* dict
-    with only the keys it updates. LangGraph merges these updates so untouched
-    keys are preserved automatically.
+    All keys are required once the pipeline is running: `start_workflow`
+    populates every field before the graph is invoked. Individual node
+    functions still return plain `dict` (not `PipelineState`) containing only
+    the keys they update — LangGraph merges these partial updates into the
+    full state so untouched keys are preserved automatically. This class is
+    `total=True` (the default) because it describes the always-complete
+    running state, not a node's partial return value.
 
     Attributes:
         workflow_id:          UUID for this pipeline run.

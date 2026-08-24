@@ -12,6 +12,7 @@ export interface Repo {
   fullName: string;
   connectedAt: string;
   webhookActive: boolean;
+  lastWebhookAt?: string;
   gitbookSpaceId?: string;
 }
 

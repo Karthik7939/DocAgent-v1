@@ -32,8 +32,8 @@ class TestSyncAgent:
 
         # Files should exist on disk
         output = tmp_path / "Blrm123_demo"
-        assert (output / "README" / "README.md").exists()
-        assert (output / "Architecture" / "Architecture.md").exists()
+        assert (output / "README.md").exists()
+        assert (output / "Architecture.md").exists()
 
     def test_run_fails_with_no_documents(self, tmp_path):
         """Agent returns non-recoverable failure when documentation is empty."""
@@ -50,7 +50,7 @@ class TestSyncAgent:
         agent = SyncAgent(output_dir=str(tmp_path))
         agent.run(mem)
 
-        written = (tmp_path / "Blrm123_demo" / "README" / "README.md").read_text(encoding="utf-8")
+        written = (tmp_path / "Blrm123_demo" / "README.md").read_text(encoding="utf-8")
         assert written == content
 
     def test_overwrite_false_skips_existing(self, tmp_path):
@@ -66,7 +66,7 @@ class TestSyncAgent:
         agent_no_overwrite = SyncAgent(output_dir=str(tmp_path), overwrite=False)
         agent_no_overwrite.run(mem2)
 
-        written = (tmp_path / "Blrm123_demo" / "README" / "README.md").read_text(encoding="utf-8")
+        written = (tmp_path / "Blrm123_demo" / "README.md").read_text(encoding="utf-8")
         assert written == original
 
     def test_repo_slug_used_for_directory(self, tmp_path):
@@ -82,7 +82,7 @@ class TestSyncAgent:
         agent = SyncAgent(output_dir=str(tmp_path))
         result = agent.run(mem)
         assert result.success is True
-        assert not (tmp_path / "Blrm123_demo" / "README" / "README.md").exists()
+        assert not (tmp_path / "Blrm123_demo" / "README.md").exists()
 
     def test_execution_time_recorded(self, tmp_path):
         """Sync execution time is stored in workflow metadata."""
