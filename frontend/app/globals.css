@@ -1,5 +1,5 @@
 
-@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap");
 @config "../tailwind.config.ts";
 @import "tailwindcss";
 
@@ -8,9 +8,26 @@ body {
 }
 
 ::selection {
-  @apply bg-accent-soft;
+  background-color: #5BC8D0;
+  color: #0F1F3D;
 }
 
 :root {
   color-scheme: light;
+}
+
+/* Presidio-style thin scrollbar */
+::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+::-webkit-scrollbar-track {
+  background: #EEECEA;
+}
+::-webkit-scrollbar-thumb {
+  background: #0A7A8F;
+  border-radius: 99px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #0F1F3D;
 }

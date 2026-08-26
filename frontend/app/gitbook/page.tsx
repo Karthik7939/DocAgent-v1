@@ -3,6 +3,8 @@
 import { useState, useEffect } from "react";
 import Link from "next/link";
 
+import { AnimatedContainer, AnimatedItem } from "@/components/AnimatedItem";
+
 interface RepoItem {
   id: string;
   fullName: string;
@@ -130,33 +132,36 @@ export default function GitBookPage() {
   };
 
   return (
-    <div className="space-y-8 pb-16 max-w-6xl mx-auto">
+    <AnimatedContainer className="space-y-8 pb-16">
       {/* Header Banner */}
-      <div className="relative overflow-hidden rounded-3xl border border-blue-500/20 bg-gradient-to-br from-surface via-blue-500/5 to-canvas p-6 sm:p-8 shadow-xl shadow-blue-900/5">
-        <div className="pointer-events-none absolute -right-16 -top-16 h-64 w-64 rounded-full bg-blue-500/10 blur-3xl" />
-        
-        <div className="relative z-10 space-y-3 max-w-3xl">
-          <div className="inline-flex items-center gap-2 rounded-full border border-blue-300 bg-blue-100/90 px-3 py-1 text-xs font-bold text-blue-800 shadow-2xs">
-            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
-            </svg>
-            Direct Integration Module
-          </div>
+      <AnimatedItem y={15}>
+        <div className="relative overflow-hidden rounded-3xl border border-blue-500/20 bg-gradient-to-br from-surface via-blue-500/5 to-canvas p-6 sm:p-8 shadow-xl shadow-blue-900/5">
+          <div className="pointer-events-none absolute -right-16 -top-16 h-64 w-64 rounded-full bg-blue-500/10 blur-3xl" />
+          
+          <div className="relative z-10 space-y-3 max-w-3xl">
+            <div className="inline-flex items-center gap-2 rounded-full border border-blue-300 bg-blue-100/90 px-3 py-1 text-xs font-bold text-blue-800 shadow-2xs">
+              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
+              </svg>
+              Direct Integration Module
+            </div>
 
-          <h1 className="text-2xl font-extrabold tracking-tight text-text sm:text-3xl">
-            GitBook Publishing Hub
-          </h1>
-          <p className="text-sm font-medium text-muted leading-relaxed">
-            Connect DocAgent directly to your GitBook Spaces. Automatically publish your standard project documentation suite (<code className="text-accent font-bold">README.md</code>, <code className="text-purple-700 font-bold">ARCHITECTURE.md</code>, <code className="text-emerald-700 font-bold">CHANGELOG.md</code>, <code className="text-rose-700 font-bold">SECURITY.md</code>) to live GitBook sites.
-          </p>
+            <h1 className="text-2xl font-extrabold tracking-tight text-text sm:text-3xl">
+              GitBook Publishing Hub
+            </h1>
+            <p className="text-sm font-medium text-muted leading-relaxed">
+              Connect DocAgent directly to your GitBook Spaces. Automatically publish your standard project documentation suite (<code className="text-teal font-bold">README.md</code>, <code className="text-purple-700 font-bold">ARCHITECTURE.md</code>, <code className="text-emerald-700 font-bold">CHANGELOG.md</code>, <code className="text-rose-700 font-bold">SECURITY.md</code>) to live GitBook sites.
+            </p>
+          </div>
         </div>
-      </div>
+      </AnimatedItem>
 
       {/* Main 2-Column Grid */}
       <div className="grid gap-8 lg:grid-cols-3">
         {/* Left Column: API Configuration & Publishing Form (2/3 width) */}
         <div className="space-y-6 lg:col-span-2">
           {/* Credentials Box */}
+          <AnimatedItem y={20}>
           <div className="rounded-2xl border border-border/80 bg-surface p-6 shadow-md shadow-amber-900/5 space-y-5">
             <div className="flex items-center justify-between border-b border-border/60 pb-4">
               <h2 className="text-base font-bold text-text flex items-center gap-2">
@@ -358,43 +363,46 @@ export default function GitBookPage() {
               </div>
             )}
           </div>
-        </div>
+        </AnimatedItem>
+      </div>
 
         {/* Right Column: Setup Guide & Space Info (1/3 width) */}
         <div className="space-y-6">
-          <div className="rounded-2xl border border-border/80 bg-surface p-5 shadow-sm space-y-4">
-            <h3 className="text-sm font-bold text-text flex items-center gap-2 border-b border-border/60 pb-3">
-              <svg className="w-4 h-4 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
-              GitBook Setup Instructions
-            </h3>
+          <AnimatedItem y={25}>
+            <div className="rounded-2xl border border-border/80 bg-surface p-5 shadow-sm space-y-4">
+              <h3 className="text-sm font-bold text-text flex items-center gap-2 border-b border-border/60 pb-3">
+                <svg className="w-4 h-4 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                GitBook Setup Instructions
+              </h3>
 
-            <div className="space-y-3 text-xs text-muted leading-relaxed">
-              <div className="space-y-1">
-                <p className="font-bold text-text">1. Create a Developer API Token</p>
-                <p>
-                  Log into GitBook, go to <strong>Account Settings → Developer → API Tokens</strong>, and create a personal API token.
-                </p>
-              </div>
+              <div className="space-y-3 text-xs text-muted leading-relaxed">
+                <div className="space-y-1">
+                  <p className="font-bold text-text">1. Create a Developer API Token</p>
+                  <p>
+                    Log into GitBook, go to <strong>Account Settings → Developer → API Tokens</strong>, and create a personal API token.
+                  </p>
+                </div>
 
-              <div className="space-y-1">
-                <p className="font-bold text-text">2. Locate Your Space ID</p>
-                <p>
-                  Open your target GitBook space in your browser. The Space ID is located in the browser URL path (e.g. <code>app.gitbook.com/s/<strong>space_12345</strong></code>).
-                </p>
-              </div>
+                <div className="space-y-1">
+                  <p className="font-bold text-text">2. Locate Your Space ID</p>
+                  <p>
+                    Open your target GitBook space in your browser. The Space ID is located in the browser URL path (e.g. <code>app.gitbook.com/s/<strong>space_12345</strong></code>).
+                  </p>
+                </div>
 
-              <div className="space-y-1">
-                <p className="font-bold text-text">3. One-Click Publishing</p>
-                <p>
-                  DocAgent automatically translates and formats all standard documents for clean rendering inside GitBook.
-                </p>
+                <div className="space-y-1">
+                  <p className="font-bold text-text">3. One-Click Publishing</p>
+                  <p>
+                    DocAgent automatically translates and formats all standard documents for clean rendering inside GitBook.
+                  </p>
+                </div>
               </div>
             </div>
-          </div>
+          </AnimatedItem>
         </div>
       </div>
-    </div>
+    </AnimatedContainer>
   );
 }

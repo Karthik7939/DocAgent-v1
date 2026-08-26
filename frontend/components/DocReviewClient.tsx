@@ -5,6 +5,7 @@ import DocPreview from "@/components/DocPreview";
 import ApprovalActions from "@/components/ApprovalActions";
 import { DiffSummary } from "@/components/DiffViewer";
 import { DocVersion } from "@/types";
+import { AnimatedContainer, AnimatedItem } from "@/components/AnimatedItem";
 
 export default function DocReviewClient({ initialDoc }: { initialDoc: DocVersion }) {
   const [doc, setDoc] = useState<DocVersion>(initialDoc);
@@ -41,58 +42,79 @@ export default function DocReviewClient({ initialDoc }: { initialDoc: DocVersion
     }
   };
 
+  const fileName = doc.title.split("/").at(-1) || doc.title;
+  const folderPath = doc.title.split("/").slice(0, -1).join("/") || "root";
+
   return (
-    <div className="space-y-4">
-      {/* Header */}
-      <div>
-        <div className="flex flex-wrap items-start gap-3">
-          <h1 className="text-xl font-semibold">{doc.title.split("/").at(-1)}</h1>
-          {doc.previousContent && (
-            <span className="mt-0.5">
-              <DiffSummary oldText={doc.previousContent} newText={doc.content} />
-            </span>
-          )}
+    <AnimatedContainer className="space-y-6 pb-12">
+      {/* Document Header Card */}
+      <AnimatedItem y={15}>
+        <div className="relative overflow-hidden rounded-2xl border border-border bg-surface p-6 shadow-sm">
+          {/* Top teal gradient accent line */}
+          <div className="absolute top-0 left-0 right-0 h-1 bg-presidio-gradient" />
+
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <div className="space-y-1.5 min-w-0">
+              <div className="flex items-center gap-3 flex-wrap">
+                <span className="text-[10px] font-bold uppercase tracking-[0.2em] text-teal">
+                  SPECIFICATION REVIEW
+                </span>
+                {doc.previousContent && (
+                  <span className="inline-flex items-center">
+                    <DiffSummary oldText={doc.previousContent} newText={doc.content} />
+                  </span>
+                )}
+              </div>
+
+              <h1 className="text-2xl font-extrabold tracking-tight text-text truncate">
+                {fileName}
+              </h1>
+
+              <p className="text-xs font-mono text-muted truncate opacity-80">
+                {doc.title}
+              </p>
+            </div>
+
+            <div className="flex items-center gap-3 shrink-0 self-start md:self-auto">
+              <span className="text-xs text-muted font-medium">
+                {new Date(doc.createdAt).toLocaleDateString()}
+              </span>
+
+              {doc.previousContent ? (
+                <span className="inline-flex items-center gap-1.5 rounded-full border border-yellow-300 bg-yellow-50 px-3 py-1 text-xs font-bold text-yellow-800">
+                  <span className="h-2 w-2 rounded-full bg-yellow-400 animate-pulse" />
+                  Diff Mode (Modified)
+                </span>
+              ) : (
+                <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-bold text-emerald-800">
+                  <span className="h-2 w-2 rounded-full bg-emerald-500" />
+                  Approved Version
+                </span>
+              )}
+            </div>
+          </div>
         </div>
-        <p className="mt-1 break-words text-sm text-muted">{doc.title}</p>
-        <p className="mt-1 text-xs text-muted">
-          Generated {new Date(doc.createdAt).toLocaleString()}
-          {doc.previousContent ? (
-            <span className="ml-2 inline-flex items-center gap-1 text-amber-700 font-medium">
-              <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
-                <path
-                  fillRule="evenodd"
-                  d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z"
-                  clipRule="evenodd"
-                />
-              </svg>
-              Updated since last version (Diff mode)
-            </span>
-          ) : (
-            <span className="ml-2 inline-flex items-center gap-1 text-emerald-700 font-medium">
-              <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-              </svg>
-              Approved (Final version)
-            </span>
-          )}
-        </p>
-      </div>
+      </AnimatedItem>
 
-      <ApprovalActions
-        docId={doc.id}
-        onApprove={handleApprove}
-        onRevise={handleRevise}
-      />
+      {/* Approval & Revision Agent Action Panel */}
+      <AnimatedItem y={20}>
+        <ApprovalActions
+          docId={doc.id}
+          onApprove={handleApprove}
+          onRevise={handleRevise}
+        />
+      </AnimatedItem>
 
-      {/* Tabbed preview / manual editor / diff viewer */}
-      <DocPreview
-        key={`${doc.id}-${doc.previousContent ? 'diff' : 'clean'}-${doc.content.length}`}
-        docId={doc.id}
-        content={doc.content}
-        previousContent={doc.previousContent}
-        onSave={handleSave}
-      />
-    </div>
+      {/* Main Tabbed Document Preview / Manual Editor / Diff Viewer */}
+      <AnimatedItem y={25}>
+        <DocPreview
+          key={`${doc.id}-${doc.previousContent ? 'diff' : 'clean'}-${doc.content.length}`}
+          docId={doc.id}
+          content={doc.content}
+          previousContent={doc.previousContent}
+          onSave={handleSave}
+        />
+      </AnimatedItem>
+    </AnimatedContainer>
   );
-
 }

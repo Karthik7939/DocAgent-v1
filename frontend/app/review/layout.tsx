@@ -12,7 +12,7 @@ export default async function ReviewLayout({
 
   return (
     <div className="flex flex-col lg:flex-row gap-6 items-start">
-      <aside className="lg:sticky lg:top-16 lg:self-start flex-shrink-0 transition-all duration-300">
+      <aside className="lg:sticky lg:top-24 lg:self-start flex-shrink-0 transition-all duration-300">
         <ReviewSidebar documents={documents} />
       </aside>
 
