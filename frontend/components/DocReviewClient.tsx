@@ -3,6 +3,7 @@
 import { useState } from "react";
 import DocPreview from "@/components/DocPreview";
 import ApprovalActions from "@/components/ApprovalActions";
+import DocChatWidget from "@/components/DocChatWidget";
 import { DiffSummary } from "@/components/DiffViewer";
 import { DocVersion } from "@/types";
 import { AnimatedContainer, AnimatedItem } from "@/components/AnimatedItem";
@@ -45,8 +46,13 @@ export default function DocReviewClient({ initialDoc }: { initialDoc: DocVersion
   const fileName = doc.title.split("/").at(-1) || doc.title;
   const folderPath = doc.title.split("/").slice(0, -1).join("/") || "root";
 
+  // doc.repoId is the underscored slug used on disk (e.g. "Owner_repo-name");
+  // the chat backend expects the "owner/repo" form, same as GitHub's full_name.
+  const repositoryName = doc.repoId.replace("_", "/");
+
   return (
-    <AnimatedContainer className="space-y-6 pb-12">
+    <>
+      <AnimatedContainer className="space-y-6 pb-12">
       {/* Document Header Card */}
       <AnimatedItem y={15}>
         <div className="relative overflow-hidden rounded-2xl border border-border bg-surface p-6 shadow-sm">
@@ -77,7 +83,10 @@ export default function DocReviewClient({ initialDoc }: { initialDoc: DocVersion
 
             <div className="flex items-center gap-3 shrink-0 self-start md:self-auto">
               <span className="text-xs text-muted font-medium">
-                {new Date(doc.createdAt).toLocaleDateString()}
+                {/* Explicit locale so server (Node's default ICU locale) and
+                    client (the browser's locale) always format identically —
+                    an unspecified locale here caused a hydration mismatch. */}
+                {new Date(doc.createdAt).toLocaleDateString("en-US")}
               </span>
 
               {doc.previousContent ? (
@@ -115,6 +124,8 @@ export default function DocReviewClient({ initialDoc }: { initialDoc: DocVersion
           onSave={handleSave}
         />
       </AnimatedItem>
-    </AnimatedContainer>
+      </AnimatedContainer>
+      <DocChatWidget repositoryName={repositoryName} />
+    </>
   );
 }

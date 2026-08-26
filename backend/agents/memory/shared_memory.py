@@ -39,6 +39,7 @@ class RepositoryInfo:
     clone_timestamp: str = ""
     author: str = ""           # GitHub username of the developer who pushed
     push_timestamp: str = ""   # ISO-8601 timestamp of the push event
+    commit_message: str = ""   # Message of the HEAD commit in this push
     # Files touched in the triggering push event (relative paths from repo root)
     added_files: list[str] = field(default_factory=list)
     modified_files: list[str] = field(default_factory=list)
@@ -164,7 +165,7 @@ class DocumentationPlan:
 
     folder_classifications: dict[str, str] = field(default_factory=dict)
     repository_docs: list[str] = field(default_factory=lambda: [
-        "README.md", "ARCHITECTURE.md", "CHANGELOG.md", "SYSTEM_OVERVIEW.md"
+        "README.md", "ARCHITECTURE.md", "WORKFLOW.md", "CHANGELOG.md", "SECURITY.md", "REPORTS.md"
     ])
     module_docs: list[str] = field(default_factory=list)
     file_docs: list[str] = field(default_factory=list)

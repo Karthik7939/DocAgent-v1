@@ -1,10 +1,16 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { DocVersion } from "@/types";
 import { motion } from "framer-motion";
+
+// This sidebar lives in the /review layout, which refetches its document
+// list on every doc navigation — that re-render resets plain component
+// state, so the repo filter would silently snap back to "All Repositories"
+// every time you clicked into a different .md file. Persist it instead.
+const REPO_FILTER_STORAGE_KEY = "docagent_repo_filter";
 
 export default function ReviewSidebar({ documents }: { documents: DocVersion[] }) {
   const pathname = usePathname();
@@ -16,6 +22,28 @@ export default function ReviewSidebar({ documents }: { documents: DocVersion[] }
     const repoSet = new Set(documents.map((doc) => doc.repoId));
     return Array.from(repoSet).filter(Boolean);
   }, [documents]);
+
+  // Restore the last-selected repo filter on mount — but only if that repo
+  // still exists in the current document list (it may have been removed).
+  useEffect(() => {
+    try {
+      const saved = window.localStorage.getItem(REPO_FILTER_STORAGE_KEY);
+      if (saved && (saved === "all" || repos.includes(saved))) {
+        setSelectedRepo(saved);
+      }
+    } catch {
+      // Storage unavailable — filter just won't survive navigation.
+    }
+  }, [repos]);
+
+  function handleRepoChange(value: string) {
+    setSelectedRepo(value);
+    try {
+      window.localStorage.setItem(REPO_FILTER_STORAGE_KEY, value);
+    } catch {
+      // Storage unavailable — filter just won't survive navigation.
+    }
+  }
 
   const filteredDocs = useMemo(() => {
     return documents.filter((doc) => {
@@ -183,7 +211,7 @@ export default function ReviewSidebar({ documents }: { documents: DocVersion[] }
               <select
                 id="repo-filter"
                 value={selectedRepo}
-                onChange={(e) => setSelectedRepo(e.target.value)}
+                onChange={(e) => handleRepoChange(e.target.value)}
                 className="w-full rounded-full border border-border bg-canvas px-3.5 py-1.5 text-xs font-semibold text-text transition-all focus:border-teal focus:bg-surface focus:outline-none focus:ring-2 focus:ring-teal/20"
               >
                 <option value="all">All Repositories ({documents.length})</option>

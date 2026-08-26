@@ -7,16 +7,18 @@ Rules (SRS Part 8, Section 7):
 - Prompts must NOT be embedded inside agent code.
 - Each template uses {placeholder} slots filled by the generator.
 
-Documentation structure (4 files):
+Documentation structure (5 files):
   1. README.md          — Project overview, setup, usage, API reference
   2. ARCHITECTURE.md    — System design, components, data flow, dependencies
-  3. CHANGELOG.md       — Recent commit history and changes (prepend-only)
-  4. SECURITY.md        — Security model, risks, and recommendations
+  3. WORKFLOW.md        — End-to-end process flowcharts (Mermaid)
+  4. CHANGELOG.md       — Recent commit history and changes (prepend-only)
+  5. SECURITY.md        — Security model, risks, and recommendations
 
 Incremental update strategy:
-  - README, ARCHITECTURE, SECURITY: LLM receives the existing document and
-    updates ONLY the sections affected by the current push. All other sections
-    are copied word-for-word to prevent unnecessary diff noise.
+  - README, ARCHITECTURE, WORKFLOW, SECURITY: LLM receives the existing
+    document and updates ONLY the sections affected by the current push.
+    All other sections are copied word-for-word to prevent unnecessary
+    diff noise.
   - CHANGELOG: LLM generates ONLY the new entry for this push. The agent
     prepends it to the existing file — old entries are never touched.
 """
@@ -212,6 +214,86 @@ Output Markdown only. No preamble. No explanation.
 
 
 # ---------------------------------------------------------------------------
+# WORKFLOW.md — incremental update
+# ---------------------------------------------------------------------------
+
+REPO_WORKFLOW_PROMPT: str = """\
+You are a senior software architect documenting the operational workflow of a
+software project as a set of Mermaid flowcharts. A new push has been made.
+Update the workflow doc to reflect the changes.
+
+CRITICAL RULES:
+- If an existing WORKFLOW.md is provided below, copy every section WORD-FOR-WORD
+  EXCEPT sections that are directly affected by the changed files.
+- Only rewrite sections where the changed files alter a process, add/remove a
+  step, change an API flow, or introduce a new entry point.
+- Every diagram MUST be valid Mermaid syntax inside a ```mermaid fenced block,
+  starting with `flowchart TD` (or `flowchart LR` for short linear flows) or
+  `stateDiagram-v2` for lifecycle/status diagrams. Do NOT use sequenceDiagram.
+- Reference real file/module/function names from the context below in each
+  diagram node — never invent generic placeholder steps.
+- If no existing document is provided, generate a complete document from scratch.
+
+Repository: {repository_name}
+Architecture Type: {architecture_type}
+
+Detected Entry Points:
+{entry_points}
+
+Files changed in this push:
+{changed_files}
+
+Identified Modules:
+{modules}
+
+Services Identified:
+{services}
+
+API Endpoints:
+{apis}
+
+Data Flow:
+{data_flow}
+
+Dependency Relationships:
+{dependency_graph}
+
+=== EXISTING WORKFLOW.md (copy unchanged sections exactly) ===
+{existing_content}
+=== END EXISTING WORKFLOW.md ===
+
+=== RETRIEVED CODE CONTEXT ===
+{rag_context}
+=== END CONTEXT ===
+
+Output the complete updated WORKFLOW.md with exactly these sections:
+
+# Workflow — {repo_name}
+
+## Overview
+1–2 paragraphs describing the primary end-to-end workflow(s) this project executes.
+
+## End-to-End Flow
+A single Mermaid flowchart (```mermaid\\nflowchart TD) tracing the main
+request/process lifecycle from trigger/entry point through every
+module/service it passes through to its final output, labeling each node
+with the real file or function that implements it.
+
+## Key Sub-Workflows
+For each significant sub-process (e.g. an API endpoint's request handling,
+a background job, a data pipeline stage), provide a short Mermaid flowchart
+plus 1–3 sentences of explanation.
+
+## State / Lifecycle
+If the project has entities with a status lifecycle (e.g. job states, order
+states, pipeline states), provide a Mermaid `stateDiagram-v2`. Omit this
+section entirely if no such lifecycle exists.
+
+Output Markdown only. No preamble. No explanation. No triple backticks wrapping the output.
+"""
+
+
+# ---------------------------------------------------------------------------
 # CHANGELOG.md — new entry only (agent prepends to existing file)
 # ---------------------------------------------------------------------------
 
@@ -223,8 +305,10 @@ The agent will prepend your output to the existing changelog automatically.
 Repository: {repository_name}
 Branch: {branch}
 Commit SHA: {commit_sha}
+Commit Message: {commit_message}
 Author: {author}
-Push Timestamp: {push_timestamp}
+Date: {push_date}
+Time: {push_time}
 
 Files Added in this push:
 {added_files}
@@ -241,9 +325,11 @@ Project Summary (for context):
 
 Output ONLY this block — no preamble, no "# Changelog" heading:
 
-## [{commit_sha_short}] — {push_timestamp}
-**Author:** {author}  
+## [{commit_sha_short}] {commit_message_summary}
+**Date:** {push_date}  **Time:** {push_time}
+**Author:** {author}
 **Branch:** `{branch}`
+**Commit Message:** {commit_message}
 
 ### Summary
 One paragraph: what was changed and why, based on the files modified.

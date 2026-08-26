@@ -120,7 +120,7 @@ export default function RepoCard({ repo }: { repo: Repo }) {
             <p className="text-sm font-bold text-text truncate">{repo.fullName}</p>
           </div>
           <p className="text-xs text-muted mt-1">
-            Connected {new Date(repo.connectedAt).toLocaleDateString()}
+            Connected {new Date(repo.connectedAt).toLocaleDateString("en-US")}
           </p>
           {indexStatus?.backend && (
             <p className="text-[11px] text-muted mt-0.5 font-mono">

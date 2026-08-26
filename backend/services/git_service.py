@@ -100,6 +100,49 @@ class GitService:
             logger.error("Pull failed: %s", exc)
             raise RuntimeError(f"Repository pull failed: {exc}") from exc
 
+    def get_file_history(
+        self, local_path: str, file_relative_path: str, max_count: int = 15
+    ) -> list[dict]:
+        """Return recent commit history for a single file, most recent first.
+
+        Args:
+            local_path:         Path to the local Git repository.
+            file_relative_path: File path relative to the repository root
+                                 (forward slashes), e.g. 'app/api/webhook.py'.
+            max_count:          Maximum number of commits to return.
+
+        Returns:
+            list[dict]: Each entry has 'sha', 'author', 'email', 'date',
+            'message'. Empty list if the file has no commit history.
+
+        Raises:
+            RuntimeError: If the path is not a valid Git repository.
+        """
+        try:
+            repo = Repo(local_path)
+        except InvalidGitRepositoryError as exc:
+            logger.error("Not a valid Git repository: %s", local_path)
+            raise RuntimeError(f"Not a valid Git repository: {local_path}") from exc
+
+        try:
+            commits = list(
+                repo.iter_commits(paths=file_relative_path, max_count=max_count)
+            )
+        except GitCommandError as exc:
+            logger.error("File history lookup failed for '%s': %s", file_relative_path, exc)
+            raise RuntimeError(f"Could not read history for '{file_relative_path}': {exc}") from exc
+
+        return [
+            {
+                "sha": commit.hexsha[:8],
+                "author": commit.author.name,
+                "email": commit.author.email,
+                "date": commit.committed_datetime.isoformat(),
+                "message": commit.message.strip().splitlines()[0] if commit.message else "",
+            }
+            for commit in commits
+        ]
+
     def sync_repository(self, clone_url: str, local_path: str) -> str:
         """Clone or pull a repository, depending on whether it already exists.
 

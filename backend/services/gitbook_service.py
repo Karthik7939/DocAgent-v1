@@ -338,7 +338,7 @@ class GitBookService:
         repo_slug = repo_name.replace("/", "_")
         repo_out_dir = _OUTPUT_ROOT / repo_slug
 
-        target_files = ["README.md", "ARCHITECTURE.md", "CHANGELOG.md", "SECURITY.md"]
+        target_files = ["README.md", "ARCHITECTURE.md", "WORKFLOW.md", "CHANGELOG.md", "SECURITY.md", "REPORTS.md"]
         published_results: List[Dict[str, Any]] = []
 
         if not repo_out_dir.exists():

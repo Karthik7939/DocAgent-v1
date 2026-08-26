@@ -35,6 +35,9 @@ from services.llm_service import LLMService
 # RAG service — bridges the rag/ module to the agent pipeline
 from services.rag_service import RAGService
 
+# Documentation chatbot
+from services.chat_service import ChatService
+
 # Agents
 from agents.preprocessing.preprocessing_agent import PreprocessingAgent
 from agents.understanding.understanding_agent import UnderstandingAgent
@@ -143,6 +146,20 @@ def get_rag_service() -> RAGService:
         RAGService: Ready-to-use RAG adapter with no repository pre-bound.
     """
     return RAGService()
+
+
+def get_chat_service() -> ChatService:
+    """Construct and return a ChatService instance.
+
+    Returns:
+        ChatService: Wired with RepositoryService (path resolution),
+        GitService (file history), and LLMService (general Q&A).
+    """
+    return ChatService(
+        repository_service=get_repository_service(),
+        git_service=get_git_service(),
+        llm_client=LLMService(),
+    )
 
 
 def get_github_service() -> GitHubService:

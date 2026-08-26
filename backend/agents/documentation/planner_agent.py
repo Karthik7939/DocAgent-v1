@@ -90,8 +90,10 @@ class DocumentationPlanningAgent:
             repository_docs=[
                 "README.md",
                 "ARCHITECTURE.md",
+                "WORKFLOW.md",
                 "CHANGELOG.md",
-                "SYSTEM_OVERVIEW.md"
+                "SECURITY.md",
+                "REPORTS.md"
             ],
             module_docs=module_docs,
             file_docs=file_docs,

@@ -1,22 +1,28 @@
 """
 agents/documentation/documentation_agent.py
 ---------------------------------------------
-Documentation Agent — generates exactly 4 project-wide documentation files:
+Documentation Agent — generates exactly 6 project-wide documentation files:
 
   1. README.md          — Overview, setup, usage, API reference
   2. ARCHITECTURE.md    — System design, components, data flow, dependencies
-  3. CHANGELOG.md       — Commit history (new entries prepended, old entries preserved)
-  4. SECURITY.md        — Security model, risks, and recommendations
+  3. WORKFLOW.md         — End-to-end process flowcharts (Mermaid)
+  4. CHANGELOG.md       — Commit history (new entries prepended, old entries preserved)
+  5. SECURITY.md        — Security model, risks, and recommendations
+  6. REPORTS.md         — Circular dependencies + unreferenced components,
+                           computed deterministically (no LLM call)
 
 Incremental update strategy:
-  - README, ARCHITECTURE, SECURITY: the agent reads the existing file from disk
-    and passes it to the LLM with instructions to update ONLY the sections
-    affected by the current push. Unchanged sections are copied word-for-word,
-    minimising diff noise in the frontend review view.
+  - README, ARCHITECTURE, WORKFLOW, SECURITY: the agent reads the existing
+    file from disk and passes it to the LLM with instructions to update ONLY
+    the sections affected by the current push. Unchanged sections are copied
+    word-for-word, minimising diff noise in the frontend review view.
   - CHANGELOG: the LLM generates ONLY the new entry for this push. The agent
     prepends it to the existing file so old entries are never touched.
+  - REPORTS: fully regenerated every run from the current dependency graph
+    (agents/documentation/code_reports.py) — no incremental merge needed
+    since it's a pure function of current state, not narrative text.
 
-All four files are stored in shared_memory.documentation.file_docs with .md
+All six files are stored in shared_memory.documentation.file_docs with .md
 keys so the SyncAgent writes them as flat files at the repo documentation root.
 """
 
@@ -24,6 +30,7 @@ from __future__ import annotations
 
 import logging
 import time
+from datetime import datetime
 from pathlib import Path
 from typing import List, Optional
 
@@ -31,9 +38,11 @@ from agents.coordinator.coordinator import AgentResult
 from agents.memory.shared_memory import SharedMemory, GeneratedDocumentation
 from agents.documentation.markdown_formatter import sanitize_markdown
 from agents.documentation.context_slicer import ContextSlicer
+from agents.documentation.code_reports import render_reports_markdown
 from prompts.documentation_prompt import (
     REPO_OVERVIEW_PROMPT,
     REPO_ARCHITECTURE_PROMPT,
+    REPO_WORKFLOW_PROMPT,
     CHANGELOG_ENTRY_PROMPT,
     SECURITY_DOC_PROMPT,
 )
@@ -48,8 +57,8 @@ class DocumentationAgent:
     """
     Documentation Generation Agent.
 
-    Generates exactly 4 project-wide Markdown files:
-      README.md, ARCHITECTURE.md, CHANGELOG.md, SECURITY.md
+    Generates exactly 6 project-wide Markdown files:
+      README.md, ARCHITECTURE.md, WORKFLOW.md, CHANGELOG.md, SECURITY.md, REPORTS.md
 
     Uses incremental update: reads existing files from disk and passes them
     to the LLM so only changed sections are rewritten.
@@ -188,17 +197,53 @@ class DocumentationAgent:
         docs.file_docs["ARCHITECTURE.md"] = architecture
 
         # ------------------------------------------------------------------
-        # 3. CHANGELOG.md  — prepend new entry, never overwrite old entries
+        # 3. WORKFLOW.md  — incremental update
+        # ------------------------------------------------------------------
+        existing_workflow = self._read_existing(repo_out_dir, "WORKFLOW.md")
+        workflow_fallback = (
+            f"# Workflow — {repo_short}\n\n"
+            f"## Overview\n{und.project_summary or 'N/A'}\n\n"
+            f"## End-to-End Flow\n```mermaid\nflowchart TD\n"
+            f"    A[Entry Point] --> B[Processing]\n    B --> C[Output]\n```\n"
+        )
+        workflow = self._llm_call(
+            REPO_WORKFLOW_PROMPT.format(
+                repository_name=repo_full,
+                repo_name=repo_short,
+                architecture_type=und.architecture_type or "Unknown",
+                entry_points=entry_points_str,
+                changed_files=changed_files_str,
+                modules=modules_str,
+                services=services_str,
+                apis=apis_str,
+                data_flow=data_flow_str,
+                dependency_graph=dep_graph_str,
+                existing_content=existing_workflow or "(No existing WORKFLOW.md — generate from scratch)",
+                rag_context=global_ctx,
+            ),
+            fallback=workflow_fallback,
+            doc_name="WORKFLOW.md",
+            warnings=warnings,
+        )
+        docs.file_docs["WORKFLOW.md"] = workflow
+
+        # ------------------------------------------------------------------
+        # 4. CHANGELOG.md  — prepend new entry, never overwrite old entries
         # ------------------------------------------------------------------
         added_files_str = "\n".join(f"- `{f}`" for f in repo.added_files) or "- None"
         modified_files_str = "\n".join(f"- `{f}`" for f in repo.modified_files) or "- None"
         commit_sha = repo.commit_sha or "HEAD"
         commit_sha_short = commit_sha[:8]
+        push_date, push_time = self._format_push_datetime(repo.push_timestamp)
+        commit_message = (repo.commit_message or "No commit message provided").strip()
+        commit_message_summary = commit_message.splitlines()[0][:72]
 
         new_entry_fallback = (
-            f"## [{commit_sha_short}] — {repo.push_timestamp or 'N/A'}\n"
-            f"**Author:** {repo.author or 'Unknown'}  \n"
-            f"**Branch:** `{repo.branch or 'main'}`\n\n"
+            f"## [{commit_sha_short}] {commit_message_summary}\n"
+            f"**Date:** {push_date}  **Time:** {push_time}\n"
+            f"**Author:** {repo.author or 'Unknown'}\n"
+            f"**Branch:** `{repo.branch or 'main'}`\n"
+            f"**Commit Message:** {commit_message}\n\n"
             f"### Added\n{added_files_str}\n\n"
             f"### Changed\n{modified_files_str}\n\n---\n"
         )
@@ -208,8 +253,12 @@ class DocumentationAgent:
                 branch=repo.branch or "main",
                 commit_sha=commit_sha,
                 commit_sha_short=commit_sha_short,
+                commit_message=commit_message,
+                commit_message_summary=commit_message_summary,
                 author=repo.author or "Unknown",
                 push_timestamp=repo.push_timestamp or "N/A",
+                push_date=push_date,
+                push_time=push_time,
                 added_files=added_files_str,
                 modified_files=modified_files_str,
                 project_summary=und.project_summary or "N/A",
@@ -235,7 +284,7 @@ class DocumentationAgent:
         docs.file_docs["CHANGELOG.md"] = changelog
 
         # ------------------------------------------------------------------
-        # 4. SECURITY.md  — incremental update
+        # 5. SECURITY.md  — incremental update
         # ------------------------------------------------------------------
         existing_security = self._read_existing(repo_out_dir, "SECURITY.md")
         security_fallback = (
@@ -263,6 +312,15 @@ class DocumentationAgent:
         )
         docs.file_docs["SECURITY.md"] = security
 
+        # ------------------------------------------------------------------
+        # 6. REPORTS.md  — deterministic, code-derived (no LLM call)
+        # ------------------------------------------------------------------
+        docs.file_docs["REPORTS.md"] = render_reports_markdown(
+            repo_name=repo_short,
+            dependency_graph=und.dependency_graph or {},
+            entry_points=meta.entry_points or [],
+        )
+
         shared_memory.documentation = docs
         duration = time.monotonic() - start
         doc_count = len([k for k in docs.file_docs if docs.file_docs[k]])
@@ -281,6 +339,23 @@ class DocumentationAgent:
     # ------------------------------------------------------------------
     # Disk helpers
     # ------------------------------------------------------------------
+
+    @staticmethod
+    def _format_push_datetime(push_timestamp: Optional[str]) -> tuple[str, str]:
+        """Split an ISO-8601 push timestamp into a ('Date', 'Time') pair.
+
+        Falls back to the current UTC date/time if the timestamp is missing
+        or unparseable, so the changelog never shows a raw 'N/A'.
+        """
+        if push_timestamp:
+            ts = push_timestamp.strip().replace("Z", "+00:00")
+            try:
+                dt = datetime.fromisoformat(ts)
+                return dt.strftime("%Y-%m-%d"), dt.strftime("%H:%M:%S")
+            except ValueError:
+                pass
+        now = datetime.utcnow()
+        return now.strftime("%Y-%m-%d"), now.strftime("%H:%M:%S")
 
     @staticmethod
     def _read_existing(repo_out_dir: Path, filename: str) -> Optional[str]:

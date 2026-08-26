@@ -483,6 +483,7 @@ class Coordinator:
         modified_files: Optional[list] = None,
         author: str = "",
         push_timestamp: str = "",
+        commit_message: str = "",
         context_package=None,
     ) -> WorkflowSummary:
         """
@@ -528,6 +529,7 @@ class Coordinator:
             modified_files=modified_files or [],
             author=author,
             push_timestamp=push_timestamp,
+            commit_message=commit_message,
         )
 
         # Attach the pre-computed RAG context package when available.
@@ -627,6 +629,7 @@ class Coordinator:
         modified_files: list,
         author: str,
         push_timestamp: str,
+        commit_message: str = "",
     ) -> SharedMemory:
         """
         Create and seed the SharedMemory object before the graph runs.
@@ -662,6 +665,7 @@ class Coordinator:
             modified_files=modified_files,
             author=author,
             push_timestamp=push_timestamp,
+            commit_message=commit_message,
         )
 
         memory.workflow = WorkflowMetadata(

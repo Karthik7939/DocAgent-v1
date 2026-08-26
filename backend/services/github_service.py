@@ -232,6 +232,7 @@ class GitHubService:
                      modified_files=parsed.modified_files,
                      author=parsed.author,
                      push_timestamp=parsed.commit_timestamp,
+                     commit_message=parsed.commit_message,
                      context_package=context_package,
                  )
 
