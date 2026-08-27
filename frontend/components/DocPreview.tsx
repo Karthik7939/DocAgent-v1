@@ -4,6 +4,7 @@ import { useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import DiffViewer from "./DiffViewer";
+import MermaidDiagram from "./MermaidDiagram";
 
 interface DocPreviewProps {
   docId: string;
@@ -151,14 +152,26 @@ export default function DocPreview({
                 remarkPlugins={[remarkGfm]}
                 components={{
                   pre({ children }: any) {
+                    // A mermaid code block (see `code` override below) renders
+                    // its own light card via MermaidDiagram, marked with the
+                    // `mermaid-diagram-card` class. `has-[]` strips this <pre>'s
+                    // own dark code-box styling when it contains one, so the
+                    // diagram isn't nested inside a code box. (Detecting this
+                    // from `children`'s element type in JS was unreliable
+                    // across react-markdown's render passes — CSS sidesteps
+                    // that entirely.)
                     return (
-                      <pre className="bg-text text-white p-4.5 rounded-xl overflow-x-auto font-mono text-xs shadow-sm border border-border/40 my-4">
+                      <pre className="has-[.mermaid-diagram-card]:bg-transparent has-[.mermaid-diagram-card]:p-0 has-[.mermaid-diagram-card]:border-0 has-[.mermaid-diagram-card]:shadow-none has-[.mermaid-diagram-card]:my-0 bg-text text-white p-4.5 rounded-xl overflow-x-auto font-mono text-xs shadow-sm border border-border/40 my-4">
                         {children}
                       </pre>
                     );
                   },
                   code({ node, inline, className, children, ...props }: any) {
                     const match = /language-(\w+)/.exec(className || "");
+                    if (match && match[1] === "mermaid") {
+                      const chart = String(children).replace(/\n$/, "");
+                      return <MermaidDiagram chart={chart} />;
+                    }
                     if (inline || (!match && !className)) {
                       return (
                         <code className="bg-teal/10 text-teal font-mono text-[13px] px-1.5 py-0.5 rounded border border-teal/20" {...props}>

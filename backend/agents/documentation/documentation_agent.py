@@ -200,6 +200,10 @@ class DocumentationAgent:
         # 3. WORKFLOW.md  — incremental update
         # ------------------------------------------------------------------
         existing_workflow = self._read_existing(repo_out_dir, "WORKFLOW.md")
+        process_signal_files_str = self._format_process_signal_files(meta.configuration_files)
+        commit_history_excerpt_str = self._format_commit_history_excerpt(
+            self._read_existing(repo_out_dir, "CHANGELOG.md")
+        )
         workflow_fallback = (
             f"# Workflow — {repo_short}\n\n"
             f"## Overview\n{und.project_summary or 'N/A'}\n\n"
@@ -218,6 +222,8 @@ class DocumentationAgent:
                 apis=apis_str,
                 data_flow=data_flow_str,
                 dependency_graph=dep_graph_str,
+                process_signal_files=process_signal_files_str,
+                commit_history_excerpt=commit_history_excerpt_str,
                 existing_content=existing_workflow or "(No existing WORKFLOW.md — generate from scratch)",
                 rag_context=global_ctx,
             ),
@@ -401,6 +407,34 @@ class DocumentationAgent:
     # ------------------------------------------------------------------
     # Formatting Helpers
     # ------------------------------------------------------------------
+
+    @staticmethod
+    def _format_process_signal_files(configuration_files) -> str:
+        """Filter configuration files down to CI/CD and process-artifact
+        signals the WORKFLOW.md methodology inference can reason from."""
+        if not configuration_files:
+            return "No configuration files detected."
+        keywords = (
+            ".github/workflows", "jenkinsfile", "gitlab-ci", ".circleci",
+            "azure-pipelines", "docker-compose", "contributing.md",
+            "issue_template", "pull_request_template", "codeowners",
+            ".pre-commit", "bitbucket-pipelines",
+        )
+        matches = [f for f in configuration_files if any(k in f.lower() for k in keywords)]
+        if matches:
+            return "\n".join(f"- `{f}`" for f in matches[:20])
+        return (
+            "No CI/CD or process-artifact files detected "
+            "(no .github/workflows, Jenkinsfile, CONTRIBUTING.md, issue/PR templates, etc.)."
+        )
+
+    @staticmethod
+    def _format_commit_history_excerpt(changelog_content: Optional[str], max_chars: int = 3000) -> str:
+        """Return a truncated excerpt of the most recent CHANGELOG.md entries
+        so the WORKFLOW.md methodology inference can judge commit cadence."""
+        if not changelog_content or not changelog_content.strip():
+            return "No commit history available yet (CHANGELOG.md not yet generated)."
+        return changelog_content.strip()[:max_chars]
 
     @staticmethod
     def _format_modules(und) -> str:

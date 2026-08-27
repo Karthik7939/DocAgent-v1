@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, KeyboardEvent } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import MermaidDiagram from "./MermaidDiagram";
 
 interface ChatTurn {
   role: "user" | "assistant";
@@ -177,8 +178,36 @@ export default function DocChatWidget({ repositoryName }: DocChatWidgetProps) {
               <div key={i} className={`flex ${m.role === "user" ? "justify-end" : "justify-start"}`}>
                 {m.role === "assistant" ? (
                   <div className="max-w-[85%] rounded-2xl rounded-bl-sm border border-border bg-canvas px-3.5 py-2.5 text-xs text-text">
-                    <div className="prose prose-sm prose-slate max-w-none prose-headings:font-bold prose-headings:text-text prose-a:text-teal prose-code:text-teal prose-code:bg-teal/5 prose-code:px-1 prose-code:py-0.5 prose-code:rounded prose-pre:bg-text prose-pre:text-white prose-pre:rounded-xl prose-p:my-1.5 prose-ul:my-1.5 prose-li:my-0.5">
-                      <ReactMarkdown remarkPlugins={[remarkGfm]}>{m.content}</ReactMarkdown>
+                    <div className="prose prose-sm prose-slate max-w-none prose-headings:font-bold prose-headings:text-text prose-a:text-teal prose-code:text-teal prose-code:bg-teal/5 prose-code:px-1 prose-code:py-0.5 prose-code:rounded prose-p:my-1.5 prose-ul:my-1.5 prose-li:my-0.5">
+                      <ReactMarkdown
+                        remarkPlugins={[remarkGfm]}
+                        components={{
+                          pre({ children }: any) {
+                            // Same has-[] technique as DocPreview.tsx — see
+                            // MermaidDiagram.tsx for why. Styling is set
+                            // directly here rather than via prose-pre: so the
+                            // has-[] conditional can target it.
+                            return (
+                              <pre className="has-[.mermaid-diagram-card]:bg-transparent has-[.mermaid-diagram-card]:p-0 has-[.mermaid-diagram-card]:my-0 bg-text text-white rounded-xl p-3 my-2 overflow-x-auto">
+                                {children}
+                              </pre>
+                            );
+                          },
+                          code({ inline, className, children, ...props }: any) {
+                            const match = /language-(\w+)/.exec(className || "");
+                            if (match && match[1] === "mermaid") {
+                              return <MermaidDiagram chart={String(children).replace(/\n$/, "")} />;
+                            }
+                            return (
+                              <code className={className} {...props}>
+                                {children}
+                              </code>
+                            );
+                          },
+                        }}
+                      >
+                        {m.content}
+                      </ReactMarkdown>
                     </div>
                   </div>
                 ) : (

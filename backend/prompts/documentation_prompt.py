@@ -232,6 +232,10 @@ CRITICAL RULES:
   `stateDiagram-v2` for lifecycle/status diagrams. Do NOT use sequenceDiagram.
 - Reference real file/module/function names from the context below in each
   diagram node — never invent generic placeholder steps.
+- The Development Methodology section must be an HONEST INFERENCE from the
+  evidence provided (commit cadence, CI/CD config, branching signals) — never
+  assert a methodology as fact. If there isn't enough evidence to distinguish
+  between methodologies, say so plainly instead of guessing.
 - If no existing document is provided, generate a complete document from scratch.
 
 Repository: {repository_name}
@@ -257,6 +261,14 @@ Data Flow:
 
 Dependency Relationships:
 {dependency_graph}
+
+Configuration / CI-CD / Process Files Detected (e.g. .github/workflows,
+Jenkinsfile, docker-compose.yml, CONTRIBUTING.md, issue/PR templates):
+{process_signal_files}
+
+Recent Commit History (from CHANGELOG.md, most recent first — use this to
+judge commit cadence, batch size, and iteration pattern):
+{commit_history_excerpt}
 
 === EXISTING WORKFLOW.md (copy unchanged sections exactly) ===
 {existing_content}
@@ -288,6 +300,23 @@ plus 1–3 sentences of explanation.
 If the project has entities with a status lifecycle (e.g. job states, order
 states, pipeline states), provide a Mermaid `stateDiagram-v2`. Omit this
 section entirely if no such lifecycle exists.
+
+## Development Methodology
+Best-effort inference of the software development methodology this repository
+appears to follow (e.g. Agile/Scrum, Kanban, Trunk-Based/Continuous Delivery,
+Waterfall, or "No formal methodology observed"). Base the call ONLY on
+observable evidence, cite that evidence explicitly, and state your confidence:
+- **Commit cadence & batch size** (from the commit history above): frequent
+  small commits suggest iterative/Agile work; infrequent large commits suggest
+  a more Waterfall or ad-hoc pattern.
+- **CI/CD automation** (from the process files above): automated
+  build/test/deploy pipelines suggest Continuous Integration/Delivery practice.
+- **Process artifacts**: issue templates, PR templates, CONTRIBUTING.md, or
+  sprint/iteration-named branches/folders suggest a formal Agile process;
+  their absence suggests an informal or solo-developer workflow.
+Output one short paragraph naming the best-fit label plus 2-3 bullet points
+of the specific evidence behind it. If evidence is too thin to distinguish
+between methodologies, say exactly that instead of picking one.
 
 Output Markdown only. No preamble. No explanation. No triple backticks wrapping the output.
 """
