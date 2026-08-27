@@ -39,6 +39,7 @@ from pydantic import BaseModel, Field
 
 from app.dependencies import get_github_service
 from rag.config.settings import RAGSettings
+from rag.indexing.index_stats import read_index_stats
 from rag.pipeline.retrieval_pipeline import RetrievalPipeline
 from rag.schemas.query import SemanticQuery
 from services.rag_service import RAGService
@@ -465,6 +466,7 @@ async def get_rag_status(repository_name: str) -> JSONResponse:
                 "vector_count": 0,
                 "backend": backend,
                 "error": str(exc),
+                "index_stats": read_index_stats(repository_name),
             },
         )
 
@@ -475,6 +477,7 @@ async def get_rag_status(repository_name: str) -> JSONResponse:
             "indexed": indexed,
             "vector_count": vector_count,
             "backend": backend,
+            "index_stats": read_index_stats(repository_name),
             **details,
         },
     )

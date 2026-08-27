@@ -14,6 +14,7 @@ from typing import Any, Optional
 from rag.chunking.chunker import Chunker
 from rag.config import settings
 from rag.embeddings.embedder import Embedder
+from rag.indexing.index_stats import write_index_stats
 from rag.parsing.dependency_graph import DependencyGraph, DependencyGraphBuilder, GraphPersistence
 from rag.retrieval.keyword_store import KeywordStore
 from rag.retrieval.vector_store_factory import get_vector_store
@@ -132,6 +133,22 @@ class BootstrapIndexer:
                 graph_time,
                 persist_time,
                 total_time,
+            )
+
+            write_index_stats(
+                self.repository_name,
+                run_type="bootstrap",
+                stats={
+                    "chunk_count": len(chunks),
+                    "chunk_time_seconds": round(chunk_time, 3),
+                    "embed_time_seconds": round(embed_time, 3),
+                    "faiss_time_seconds": round(faiss_time, 3),
+                    "bm25_time_seconds": round(bm25_time, 3),
+                    "graph_time_seconds": round(graph_time, 3),
+                    "persist_time_seconds": round(persist_time, 3),
+                    "total_time_seconds": round(total_time, 3),
+                    "chunks_per_second": round(len(chunks) / total_time, 2) if total_time > 0 else 0.0,
+                },
             )
 
         except Exception as e:

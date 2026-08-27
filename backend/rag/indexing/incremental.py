@@ -17,6 +17,7 @@ from rag.chunking.chunker import Chunker
 from rag.config import settings
 from rag.embeddings.embedder import Embedder
 from rag.indexing.bootstrap import BootstrapIndexer
+from rag.indexing.index_stats import write_index_stats
 from rag.indexing.invalidation import IndexInvalidator
 from rag.parsing.dependency_graph import DependencyGraphUpdater, GraphPersistence
 from rag.retrieval.keyword_store import KeywordStore
@@ -316,6 +317,31 @@ class IncrementalIndexer:
                 graph_time,
                 persist_time,
                 total_time,
+            )
+
+            changed_chunk_count = added_count + updated_count
+            write_index_stats(
+                self.repository_name,
+                run_type="incremental",
+                stats={
+                    "chunks_added": added_count,
+                    "chunks_updated": updated_count,
+                    "chunks_restored": restored_count,
+                    "chunks_skipped": skipped_count,
+                    "chunks_deleted": deleted_count,
+                    "chunk_time_seconds": round(chunk_time, 3),
+                    "embed_time_seconds": round(embed_time, 3),
+                    "faiss_time_seconds": round(faiss_time, 3),
+                    "bm25_time_seconds": round(bm25_time, 3),
+                    "graph_time_seconds": round(graph_time, 3),
+                    "persist_time_seconds": round(persist_time, 3),
+                    "total_time_seconds": round(total_time, 3),
+                    "chunks_per_second": (
+                        round(changed_chunk_count / total_time, 2)
+                        if total_time > 0 and changed_chunk_count > 0
+                        else 0.0
+                    ),
+                },
             )
 
         except Exception as e:

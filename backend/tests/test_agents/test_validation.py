@@ -4,6 +4,8 @@ tests/agents/test_validation.py
 Unit tests for agents/validation/validation_agent.py
 """
 
+from unittest.mock import MagicMock
+
 import pytest
 from agents.validation.validation_agent import ValidationAgent, PASS_THRESHOLD
 from agents.memory.shared_memory import (
@@ -127,3 +129,90 @@ class TestValidationAgent:
         agent = ValidationAgent(llm_client=None)
         agent.run(mem)
         assert mem.validation.timestamp != ""
+
+
+class TestFaithfulnessScore:
+    """Unit tests for ValidationAgent._compute_faithfulness_score."""
+
+    def test_returns_zero_without_llm(self):
+        mem = _make_memory_with_docs()
+        mem.documentation.file_docs["ARCHITECTURE.md"] = GOOD_ARCHITECTURE
+        agent = ValidationAgent(llm_client=None)
+        score, notes = agent._compute_faithfulness_score(mem)
+        assert score == 0.0
+        assert notes == ""
+
+    def test_returns_zero_without_architecture_doc(self):
+        mem = _make_memory_with_docs()
+        llm = MagicMock()
+        agent = ValidationAgent(llm_client=llm)
+        score, notes = agent._compute_faithfulness_score(mem)
+        assert score == 0.0
+        llm.generate.assert_not_called()
+
+    def test_returns_zero_without_rag_context(self, monkeypatch):
+        mem = _make_memory_with_docs()
+        mem.documentation.file_docs["ARCHITECTURE.md"] = GOOD_ARCHITECTURE
+        llm = MagicMock()
+        agent = ValidationAgent(llm_client=llm)
+        monkeypatch.setattr(agent._slicer, "get_global_context", lambda ctx: "")
+        score, notes = agent._compute_faithfulness_score(mem)
+        assert score == 0.0
+        llm.generate.assert_not_called()
+
+    def test_parses_score_and_unsupported_claims(self, monkeypatch):
+        mem = _make_memory_with_docs()
+        mem.documentation.file_docs["ARCHITECTURE.md"] = GOOD_ARCHITECTURE
+        llm = MagicMock()
+        llm.generate.return_value = (
+            "FAITHFULNESS_SCORE: 82\n"
+            "UNSUPPORTED_CLAIMS:\n"
+            "- Claims a Redis cache exists; not present in context\n"
+        )
+        agent = ValidationAgent(llm_client=llm)
+        monkeypatch.setattr(agent._slicer, "get_global_context", lambda ctx: "some real code context")
+        score, notes = agent._compute_faithfulness_score(mem)
+        assert score == 82.0
+        assert "Redis" in notes
+
+    def test_parses_none_as_empty_notes(self, monkeypatch):
+        mem = _make_memory_with_docs()
+        mem.documentation.file_docs["ARCHITECTURE.md"] = GOOD_ARCHITECTURE
+        llm = MagicMock()
+        llm.generate.return_value = "FAITHFULNESS_SCORE: 95\nUNSUPPORTED_CLAIMS:\nNONE\n"
+        agent = ValidationAgent(llm_client=llm)
+        monkeypatch.setattr(agent._slicer, "get_global_context", lambda ctx: "some real code context")
+        score, notes = agent._compute_faithfulness_score(mem)
+        assert score == 95.0
+        assert notes == ""
+
+    def test_score_clamped_to_0_100(self, monkeypatch):
+        mem = _make_memory_with_docs()
+        mem.documentation.file_docs["ARCHITECTURE.md"] = GOOD_ARCHITECTURE
+        llm = MagicMock()
+        llm.generate.return_value = "FAITHFULNESS_SCORE: 140\nUNSUPPORTED_CLAIMS:\nNONE\n"
+        agent = ValidationAgent(llm_client=llm)
+        monkeypatch.setattr(agent._slicer, "get_global_context", lambda ctx: "some real code context")
+        score, _ = agent._compute_faithfulness_score(mem)
+        assert score == 100.0
+
+    def test_llm_exception_degrades_gracefully(self, monkeypatch):
+        mem = _make_memory_with_docs()
+        mem.documentation.file_docs["ARCHITECTURE.md"] = GOOD_ARCHITECTURE
+        llm = MagicMock()
+        llm.generate.side_effect = Exception("LLM down")
+        agent = ValidationAgent(llm_client=llm)
+        monkeypatch.setattr(agent._slicer, "get_global_context", lambda ctx: "some real code context")
+        score, notes = agent._compute_faithfulness_score(mem)
+        assert score == 0.0
+        assert notes == ""
+
+    def test_run_populates_report_faithfulness_fields(self, monkeypatch):
+        mem = _make_memory_with_docs()
+        mem.documentation.file_docs["ARCHITECTURE.md"] = GOOD_ARCHITECTURE
+        llm = MagicMock()
+        llm.generate.return_value = "FAITHFULNESS_SCORE: 77\nUNSUPPORTED_CLAIMS:\nNONE\n"
+        agent = ValidationAgent(llm_client=llm)
+        monkeypatch.setattr(agent._slicer, "get_global_context", lambda ctx: "some real code context")
+        agent.run(mem)
+        assert mem.validation.faithfulness_score == 77.0

@@ -25,8 +25,13 @@ import time
 from dataclasses import dataclass, field
 
 from agents.coordinator.coordinator import AgentResult
+from agents.documentation.context_slicer import ContextSlicer
 from agents.memory.shared_memory import SharedMemory, ValidationReport
-from prompts.validation_prompt import DOCUMENT_VALIDATION_PROMPT, CONSISTENCY_VALIDATION_PROMPT
+from prompts.validation_prompt import (
+    DOCUMENT_VALIDATION_PROMPT,
+    CONSISTENCY_VALIDATION_PROMPT,
+    FAITHFULNESS_VALIDATION_PROMPT,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -93,6 +98,7 @@ class ValidationAgent:
 
     def __init__(self, llm_client=None) -> None:
         self._llm = llm_client
+        self._slicer = ContextSlicer()
 
     def run(self, shared_memory: SharedMemory) -> AgentResult:
         """
@@ -149,6 +155,9 @@ class ValidationAgent:
                 len(consistency_issues),
             )
 
+        # 2.6 — Faithfulness / groundedness score (if LLM is available)
+        faithfulness_score, faithfulness_notes = self._compute_faithfulness_score(shared_memory)
+
         # 3 — Compute overall score
         overall_score = self._compute_overall_score(doc_results, consistency_issues)
 
@@ -183,6 +192,8 @@ class ValidationAgent:
         report = ValidationReport(
             validation_status=status,
             quality_score=overall_score,
+            faithfulness_score=faithfulness_score,
+            faithfulness_notes=faithfulness_notes,
             errors=all_errors,
             warnings=all_warnings,
             missing_sections=all_missing,
@@ -466,6 +477,72 @@ class ValidationAgent:
                 continue
             findings.append(f"{parts[1]} vs {parts[2]}: {parts[3]}")
         return findings
+
+    # ------------------------------------------------------------------
+    # Faithfulness / groundedness check
+    # ------------------------------------------------------------------
+
+    def _compute_faithfulness_score(self, shared_memory: SharedMemory) -> tuple[float, str]:
+        """LLM-judge how well ARCHITECTURE.md's claims are grounded in the
+        RAG context that was retrieved to generate it (hallucination-risk
+        signal, in the same spirit as RAGAS's faithfulness metric).
+
+        ARCHITECTURE.md is used because it's the most fact-dense generated
+        document (component responsibilities, data flow, dependency graph),
+        so it has the most checkable claims per token.
+
+        Runs only when both an LLM and RAG context are available — with no
+        context to check claims against, any score would be meaningless.
+
+        Returns:
+            tuple[float, str]: (score 0-100, notes on unsupported claims).
+            (0.0, "") when the check couldn't run.
+        """
+        llm = self._llm
+        if llm is None:
+            return 0.0, ""
+
+        architecture = shared_memory.documentation.file_docs.get("ARCHITECTURE.md", "")
+        if not architecture.strip():
+            return 0.0, ""
+
+        ctx_pkg = getattr(shared_memory, "rag_context_package", None)
+        rag_context = self._slicer.get_global_context(ctx_pkg)
+        if not rag_context.strip():
+            return 0.0, ""
+
+        repo = shared_memory.repository
+        prompt = FAITHFULNESS_VALIDATION_PROMPT.format(
+            repository_name=repo.full_name or repo.name,
+            rag_context=rag_context,
+            document_type="ARCHITECTURE.md",
+            document_content=architecture[:4000],
+        )
+
+        try:
+            raw = llm.generate(prompt)
+        except Exception as exc:
+            logger.warning("Faithfulness check failed: %s", exc)
+            return 0.0, ""
+
+        return self._parse_faithfulness_result(raw)
+
+    @staticmethod
+    def _parse_faithfulness_result(raw: str) -> tuple[float, str]:
+        """Parse the FAITHFULNESS_VALIDATION_PROMPT response."""
+        score_match = re.search(r"FAITHFULNESS_SCORE:\s*(\d+(?:\.\d+)?)", raw)
+        score = min(100.0, max(0.0, float(score_match.group(1)))) if score_match else 0.0
+
+        claims_match = re.search(
+            r"UNSUPPORTED_CLAIMS:\s*(.*)", raw, re.DOTALL
+        )
+        notes = ""
+        if claims_match:
+            claims_text = claims_match.group(1).strip()
+            if claims_text and "NONE" not in claims_text.splitlines()[0].upper():
+                notes = claims_text
+
+        return score, notes
 
     # ------------------------------------------------------------------
     # Score computation

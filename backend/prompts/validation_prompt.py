@@ -80,3 +80,42 @@ CONTRADICTION | DOCUMENT_A | DOCUMENT_B | DESCRIPTION
 One per line.
 If no contradictions found, respond with: NO_CONTRADICTIONS
 """
+
+
+# ---------------------------------------------------------------------------
+# Faithfulness / groundedness prompt
+# ---------------------------------------------------------------------------
+
+FAITHFULNESS_VALIDATION_PROMPT: str = """\
+You are auditing auto-generated documentation for hallucination risk.
+Compare the DOCUMENT below against the RETRIEVED CODE CONTEXT it was generated
+from. Judge ONLY whether the document's factual claims (component names, file
+paths, API routes, function names, data-flow steps) are traceable to the
+retrieved context — not whether the writing is good.
+
+Repository: {repository_name}
+
+=== RETRIEVED CODE CONTEXT ===
+{rag_context}
+=== END CONTEXT ===
+
+=== DOCUMENT ({document_type}) ===
+{document_content}
+=== END DOCUMENT ===
+
+Score how faithfully the document is grounded in the retrieved context, on a
+0-100 scale:
+- 100 = every checkable claim is directly traceable to the context.
+- 50 = roughly half the claims are traceable; the rest are plausible but unverifiable.
+- 0 = the document appears fabricated, contradicting or unrelated to the context.
+
+A claim you simply cannot check against the given context (because the
+context doesn't cover that area) is NOT the same as an unsupported claim —
+only flag claims that are actually contradicted or clearly invented.
+
+Respond in this exact format:
+
+FAITHFULNESS_SCORE: <0-100>
+UNSUPPORTED_CLAIMS:
+<List each specific claim not supported by the context, one per line. If none, write: NONE>
+"""

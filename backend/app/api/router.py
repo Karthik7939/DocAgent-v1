@@ -11,7 +11,7 @@ Responsibilities:
 
 from fastapi import APIRouter
 
-from app.api import chat, debug, documents, gitbook, health, rag, webhook
+from app.api import chat, debug, documents, gitbook, health, metrics, rag, webhook
 
 # Main router that is registered on the FastAPI app in main.py
 api_router = APIRouter()
@@ -36,3 +36,6 @@ api_router.include_router(debug.router, prefix="/api/debug", tags=["Debug"])
 
 # Documentation chatbot — endpoint at /api/chat
 api_router.include_router(chat.router, prefix="/api/chat", tags=["Chat"])
+
+# Analytics dashboard — endpoint at /api/metrics/{repo_slug}
+api_router.include_router(metrics.router, prefix="/api/metrics", tags=["Metrics"])

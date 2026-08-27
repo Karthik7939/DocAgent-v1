@@ -54,6 +54,7 @@ from agents.memory.shared_memory import (
     RepositoryInfo,
     WorkflowMetadata,
 )
+from agents.coordinator.run_metrics import write_run_metrics
 from utils.helpers import generate_uuid, generate_timestamp
 
 logger = logging.getLogger(__name__)
@@ -604,6 +605,10 @@ class Coordinator:
         # Mark completed if no error flag
         if not final_state.get("error"):
             final_wf_state.mark_completed()
+            # Analytics snapshot — pure side-effect from data the pipeline
+            # already computed; costs low-single-digit milliseconds, no LLM
+            # calls, doesn't affect generation time itself.
+            write_run_metrics(final_memory, final_wf_state.execution_time)
 
         logger.info(
             "Workflow finished: id=%s  status=%s  duration=%.2fs",

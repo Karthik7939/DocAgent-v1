@@ -136,6 +136,7 @@ class SyncAgent:
         repo_output_dir = self._output_dir / repo_slug
 
         report = SyncReport(output_directory=str(repo_output_dir))
+        shared_memory.workflow.output_directory = str(repo_output_dir)
 
         self._ensure_directory(repo_output_dir)
         logger.info("Output directory verified: %s", repo_output_dir)

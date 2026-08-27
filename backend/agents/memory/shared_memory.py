@@ -254,6 +254,8 @@ class ValidationReport:
 
     validation_status: str = ""        # PASSED | PASSED_WITH_WARNINGS | FAILED
     quality_score: float = 0.0         # 0–100
+    faithfulness_score: float = 0.0    # 0–100 — LLM-judged groundedness vs RAG context
+    faithfulness_notes: str = ""       # Unsupported claims found, if any
     errors: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
     missing_sections: list[str] = field(default_factory=list)
@@ -308,6 +310,7 @@ class WorkflowMetadata:
     current_status: str = ""
     execution_times: dict[str, float] = field(default_factory=dict)
     total_execution_time: float = 0.0
+    output_directory: str = ""  # Set by SyncAgent — repo's generated_docs/ path
 
 
 # ---------------------------------------------------------------------------
