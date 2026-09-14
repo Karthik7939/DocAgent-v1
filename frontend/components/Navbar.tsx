@@ -31,7 +31,7 @@ export default function Navbar() {
           >
             <Image
               src="/logo.png?v=2"
-              alt="DocAgent Logo"
+              alt="DocuBear Logo"
               width={44}
               height={44}
               className="h-11 w-11 object-contain"
@@ -40,7 +40,7 @@ export default function Navbar() {
             />
           </motion.div>
           <span className="text-xl font-bold tracking-tight text-text">
-            Doc<span className="text-teal">Agent</span>
+            Docu<span className="text-teal">Bear</span>
           </span>
         </Link>
 

@@ -81,12 +81,6 @@ function scoreStatus(score: number): "good" | "warning" | "danger" {
   return "danger";
 }
 
-function coverageStatus(ratio: number): "good" | "warning" | "danger" {
-  if (ratio >= 0.5) return "good";
-  if (ratio >= 0.2) return "warning";
-  return "danger";
-}
-
 export default function AnalyticsPage() {
   const [repos, setRepos] = useState<Repo[]>([]);
   const [selectedSlug, setSelectedSlug] = useState<string>("");
@@ -262,25 +256,6 @@ export default function AnalyticsPage() {
                   displayValue={run ? run.quality_score.toFixed(1) : "—"}
                   status={scoreStatus(run?.quality_score ?? 0)}
                   sublabel="LLM-graded formatting, completeness & accuracy"
-                />
-                <RadialMeter
-                  label="Faithfulness Score"
-                  percent={run?.faithfulness_score ?? 0}
-                  displayValue={run ? run.faithfulness_score.toFixed(1) : "—"}
-                  status={scoreStatus(run?.faithfulness_score ?? 0)}
-                  sublabel={
-                    run?.faithfulness_notes ||
-                    (run && run.faithfulness_score > 0
-                      ? "No unsupported claims flagged vs. retrieved code"
-                      : "Needs an LLM + RAG context to compute")
-                  }
-                />
-                <RadialMeter
-                  label="Test Coverage Ratio"
-                  percent={run ? run.test_coverage_ratio * 100 : 0}
-                  displayValue={run ? `${Math.round(run.test_coverage_ratio * 100)}%` : "—"}
-                  status={coverageStatus(run?.test_coverage_ratio ?? 0)}
-                  sublabel={run ? `${run.test_files} test files / ${run.source_files} source files` : "No data yet"}
                 />
               </div>
             </FadeIn>
@@ -475,7 +450,7 @@ export default function AnalyticsPage() {
             Engineering Rigor
           </h2>
           <p className="mb-4 text-xs text-muted">
-            About DocAgent itself, not this repository — the process behind the numbers above.
+            About DocuBear itself, not this repository — the process behind the numbers above.
           </p>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <div>

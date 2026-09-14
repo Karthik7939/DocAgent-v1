@@ -23,7 +23,7 @@ interface DocChatWidgetProps {
 const MAX_STORED_TURNS = 40;
 
 function storageKey(repositoryName: string): string {
-  return `docagent_chat:${repositoryName}`;
+  return `docubear_chat:${repositoryName}`;
 }
 
 function loadHistory(repositoryName: string): ChatTurn[] {

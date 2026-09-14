@@ -10,7 +10,7 @@ import { motion } from "framer-motion";
 // list on every doc navigation — that re-render resets plain component
 // state, so the repo filter would silently snap back to "All Repositories"
 // every time you clicked into a different .md file. Persist it instead.
-const REPO_FILTER_STORAGE_KEY = "docagent_repo_filter";
+const REPO_FILTER_STORAGE_KEY = "docubear_repo_filter";
 
 export default function ReviewSidebar({ documents }: { documents: DocVersion[] }) {
   const pathname = usePathname();
@@ -346,7 +346,7 @@ export default function ReviewSidebar({ documents }: { documents: DocVersion[] }
         {!isCollapsed && (
           <span className="flex items-center gap-2 text-[11px] font-bold text-text">
             <span className="h-2 w-2 rounded-full bg-teal" />
-            DocAgent Hub
+            DocuBear Hub
           </span>
         )}
         <span className="inline-flex items-center gap-1.5 text-[10px] font-bold text-emerald-800 bg-emerald-50 px-3 py-1 rounded-full border border-emerald-200">

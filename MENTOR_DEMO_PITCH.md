@@ -1,4 +1,4 @@
-# DocAgent — Mentor Demo Script
+# DocuBear — Mentor Demo Script
 
 A page-by-page walkthrough for presenting the frontend to a mentor —
 what to click, and what to say. Grounded in the actual pages that exist
@@ -8,7 +8,7 @@ in `frontend/app/` (not generic filler).
 
 ## Opening line (before touching the screen)
 
-> "This is DocAgent — it watches a GitHub repo, and every time someone
+> "This is DocuBear — it watches a GitHub repo, and every time someone
 > pushes code, it automatically generates and keeps README, Architecture,
 > Changelog, and Security docs up to date, using a RAG pipeline so the AI
 > is grounded in real code instead of guessing. Nothing gets published

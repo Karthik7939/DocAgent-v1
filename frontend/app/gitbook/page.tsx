@@ -26,9 +26,9 @@ export default function GitBookPage() {
 
   // Load saved settings from localStorage and fetch connected repos
   useEffect(() => {
-    const savedToken = localStorage.getItem("docagent_gitbook_token") || "";
-    const savedSpaceId = localStorage.getItem("docagent_gitbook_space_id") || "";
-    const savedPublicUrl = localStorage.getItem("docagent_gitbook_public_url") || "";
+    const savedToken = localStorage.getItem("docubear_gitbook_token") || "";
+    const savedSpaceId = localStorage.getItem("docubear_gitbook_space_id") || "";
+    const savedPublicUrl = localStorage.getItem("docubear_gitbook_public_url") || "";
     setApiToken(savedToken);
     setSpaceId(savedSpaceId);
     setPublicBaseUrl(savedPublicUrl);
@@ -53,9 +53,9 @@ export default function GitBookPage() {
   }, []);
 
   const handleSaveToken = () => {
-    localStorage.setItem("docagent_gitbook_token", apiToken);
-    localStorage.setItem("docagent_gitbook_space_id", spaceId);
-    localStorage.setItem("docagent_gitbook_public_url", publicBaseUrl);
+    localStorage.setItem("docubear_gitbook_token", apiToken);
+    localStorage.setItem("docubear_gitbook_space_id", spaceId);
+    localStorage.setItem("docubear_gitbook_public_url", publicBaseUrl);
   };
 
   const handleTestConnection = async () => {
@@ -150,7 +150,7 @@ export default function GitBookPage() {
               GitBook Publishing Hub
             </h1>
             <p className="text-sm font-medium text-muted leading-relaxed">
-              Connect DocAgent directly to your GitBook Spaces. Automatically publish your standard project documentation suite (<code className="text-teal font-bold">README.md</code>, <code className="text-purple-700 font-bold">ARCHITECTURE.md</code>, <code className="text-emerald-700 font-bold">CHANGELOG.md</code>, <code className="text-rose-700 font-bold">SECURITY.md</code>) to live GitBook sites.
+              Connect DocuBear directly to your GitBook Spaces. Automatically publish your standard project documentation suite (<code className="text-teal font-bold">README.md</code>, <code className="text-purple-700 font-bold">ARCHITECTURE.md</code>, <code className="text-emerald-700 font-bold">CHANGELOG.md</code>, <code className="text-rose-700 font-bold">SECURITY.md</code>) to live GitBook sites.
             </p>
           </div>
         </div>
@@ -395,7 +395,7 @@ export default function GitBookPage() {
                 <div className="space-y-1">
                   <p className="font-bold text-text">3. One-Click Publishing</p>
                   <p>
-                    DocAgent automatically translates and formats all standard documents for clean rendering inside GitBook.
+                    DocuBear automatically translates and formats all standard documents for clean rendering inside GitBook.
                   </p>
                 </div>
               </div>

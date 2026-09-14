@@ -4,7 +4,7 @@ import Navbar from "@/components/Navbar";
 import PageTransition from "@/components/PageTransition";
 
 export const metadata: Metadata = {
-  title: "DocAgent",
+  title: "DocuBear",
   description: "Automated code documentation, reviewed by you.",
 };
 

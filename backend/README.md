@@ -1,4 +1,4 @@
-# DocAgent Backend
+# DocuBear Backend
 
 A FastAPI backend that receives GitHub push webhooks and automatically
 generates, validates, and publishes repository documentation. It combines
