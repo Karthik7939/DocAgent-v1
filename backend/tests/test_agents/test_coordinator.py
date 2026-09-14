@@ -123,6 +123,42 @@ class TestCoordinator:
         assert summary.status == AgentWorkflowStatus.COMPLETED.value
         assert summary.failed_agent is None
 
+    def test_weak_pass_with_warnings_routes_to_revision(self):
+        """PASSED_WITH_WARNINGS below WEAK_PASS_REVISION_THRESHOLD (75.0)
+        must get one more revision attempt instead of syncing immediately."""
+        val_agent = MagicMock()
+        def val_run(mem):
+            mem.validation.validation_status = "PASSED_WITH_WARNINGS"
+            mem.validation.quality_score = 70.6
+            return AgentResult(success=True, message="OK", execution_time=0.1)
+        val_agent.run.side_effect = val_run
+
+        revision_agent = _passing_agent()
+        coord = _make_coordinator(
+            validation_agent=val_agent, revision_agent=revision_agent, max_revision_cycles=1,
+        )
+        summary = coord.start_workflow("owner/repo", "repositories/owner_repo", "main", "abc")
+
+        assert revision_agent.run.call_count == 1
+        assert summary.status == AgentWorkflowStatus.COMPLETED.value
+
+    def test_comfortable_pass_with_warnings_routes_to_sync(self):
+        """PASSED_WITH_WARNINGS at or above WEAK_PASS_REVISION_THRESHOLD
+        syncs immediately, same as before this fix -- no wasted revision."""
+        val_agent = MagicMock()
+        def val_run(mem):
+            mem.validation.validation_status = "PASSED_WITH_WARNINGS"
+            mem.validation.quality_score = 80.0
+            return AgentResult(success=True, message="OK", execution_time=0.1)
+        val_agent.run.side_effect = val_run
+
+        revision_agent = _passing_agent()
+        coord = _make_coordinator(validation_agent=val_agent, revision_agent=revision_agent)
+        summary = coord.start_workflow("owner/repo", "repositories/owner_repo", "main", "abc")
+
+        assert revision_agent.run.call_count == 0
+        assert summary.status == AgentWorkflowStatus.COMPLETED.value
+
     def test_non_recoverable_failure_marks_failed(self):
         """Non-recoverable preprocessing failure → status=FAILED."""
         coord = _make_coordinator(

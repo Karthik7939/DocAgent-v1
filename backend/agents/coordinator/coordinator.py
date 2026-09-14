@@ -55,12 +55,19 @@ from agents.memory.shared_memory import (
     WorkflowMetadata,
 )
 from agents.coordinator.run_metrics import write_run_metrics
+from agents.coordinator.validation_log import log_validation_event
 from utils.helpers import generate_uuid, generate_timestamp
 
 logger = logging.getLogger(__name__)
 
 # Maximum retry attempts per agent before the workflow is marked FAILED.
 MAX_RETRIES: int = 3
+
+# A PASSED_WITH_WARNINGS document scoring below this still gets one more
+# revision attempt (cycles permitting) instead of syncing immediately —
+# without this, a weak pass (e.g. 70.6, just above PASS_THRESHOLD) never
+# gets a chance to improve, since only FAILED docs route to revision.
+WEAK_PASS_REVISION_THRESHOLD: float = 75.0
 
 
 # ---------------------------------------------------------------------------
@@ -269,10 +276,14 @@ class Coordinator:
         Decide the next step after the validation node runs.
 
         Decision tree:
-          - Error flag is set           → "failed"  (stop immediately)
-          - Validation PASSED / WARNING  → "sync"    (proceed to write docs)
-          - Validation FAILED + cycles < max → "revision" (attempt fix)
-          - Validation FAILED + cycles ≥ max → "failed"  (give up)
+          - Error flag is set                → "failed"   (stop immediately)
+          - Validation PASSED                 → "sync"     (proceed to write docs)
+          - PASSED_WITH_WARNINGS, weak score
+            (< WEAK_PASS_REVISION_THRESHOLD)
+            + cycles < max                    → "revision" (one more attempt)
+          - PASSED_WITH_WARNINGS, otherwise    → "sync"     (proceed to write docs)
+          - Validation FAILED + cycles < max  → "revision" (attempt fix)
+          - Validation FAILED + cycles ≥ max  → "failed"   (give up)
 
         Args:
             state: Current pipeline state after validation node.
@@ -293,10 +304,39 @@ class Coordinator:
             validation_status, revision_cycles, self._max_revision_cycles,
         )
 
-        if validation_status in ("PASSED", "PASSED_WITH_WARNINGS"):
+        doc_id = f"{state.get('commit_sha', '')}:{state.get('workflow_id', '')}"
+
+        if validation_status == "PASSED":
+            log_validation_event(
+                doc_id, revision_cycles, memory.validation.quality_score,
+                "sync", memory.validation.per_document_scores,
+            )
+            return "sync"
+
+        if validation_status == "PASSED_WITH_WARNINGS":
+            # A weak pass still gets one more revision attempt (cycles
+            # permitting) instead of syncing as-is — see WEAK_PASS_REVISION_THRESHOLD.
+            if (
+                memory.validation.quality_score < WEAK_PASS_REVISION_THRESHOLD
+                and revision_cycles < self._max_revision_cycles
+            ):
+                log_validation_event(
+                    doc_id, revision_cycles, memory.validation.quality_score,
+                    "revision", memory.validation.per_document_scores,
+                )
+                return "revision"
+
+            log_validation_event(
+                doc_id, revision_cycles, memory.validation.quality_score,
+                "sync", memory.validation.per_document_scores,
+            )
             return "sync"
 
         if revision_cycles < self._max_revision_cycles:
+            log_validation_event(
+                doc_id, revision_cycles, memory.validation.quality_score,
+                "revision", memory.validation.per_document_scores,
+            )
             return "revision"
 
         # Exhausted all revision cycles
@@ -310,6 +350,10 @@ class Coordinator:
             f"Score: {memory.validation.quality_score:.1f}"
         )
         wf_state.mark_failed(AgentName.VALIDATION.value, reason)
+        log_validation_event(
+            doc_id, revision_cycles, memory.validation.quality_score,
+            "failed", memory.validation.per_document_scores,
+        )
         return "failed"
 
     # ------------------------------------------------------------------

@@ -42,6 +42,14 @@ logger = logging.getLogger(__name__)
 PASS_THRESHOLD: float = 70.0          # minimum score to PASS
 WARN_THRESHOLD: float = 85.0          # score above this = PASSED, below = PASSED_WITH_WARNINGS
 
+# Below this faithfulness score (when the check actually ran), the document
+# is forced to FAILED regardless of structural quality — 50 is the
+# FAITHFULNESS_VALIDATION_PROMPT's own rubric midpoint ("half the claims are
+# traceable"). Without this floor a structurally polished but fabricated
+# document (e.g. inventing "Flask" instead of "FastAPI") could still pass
+# and would never reach the Revision Agent.
+FAITHFULNESS_FLOOR: float = 50.0
+
 # ---------------------------------------------------------------------------
 # Quality score weights  (SRS Part 6, Section 16)
 # ---------------------------------------------------------------------------
@@ -52,6 +60,22 @@ WEIGHT_CONSISTENCY: float = 0.20
 WEIGHT_MARKDOWN: float = 0.10
 WEIGHT_COVERAGE: float = 0.10
 WEIGHT_READABILITY: float = 0.05
+
+# Only folded into overall_score when faithfulness was actually checked
+# (LLM + RAG context + at least one non-empty doc available) — see
+# _compute_overall_score's applied_weight_sum normalisation.
+WEIGHT_FAITHFULNESS: float = 0.20
+
+# LLM-authored documents checked for groundedness against RAG context.
+# REPORTS.md is deliberately excluded: it's rendered deterministically from
+# static-analysis data (code_reports.py), not LLM-authored, so it can't
+# hallucinate.
+FAITHFULNESS_CHECKED_DOCS: list[str] = [
+    "README.md", "ARCHITECTURE.md", "WORKFLOW.md", "CHANGELOG.md", "SECURITY.md",
+]
+
+# Per-document truncation applied before sending to the faithfulness judge.
+FAITHFULNESS_DOC_CHAR_LIMIT: int = 12_000
 
 # ---------------------------------------------------------------------------
 # Expected sections in every per-file document
@@ -155,11 +179,16 @@ class ValidationAgent:
                 len(consistency_issues),
             )
 
-        # 2.6 — Faithfulness / groundedness score (if LLM is available)
-        faithfulness_score, faithfulness_notes = self._compute_faithfulness_score(shared_memory)
+        # 2.6 — Faithfulness / groundedness score, across all LLM-authored docs
+        # (if LLM is available)
+        faithfulness_score, faithfulness_notes, faithfulness_checked = (
+            self._compute_faithfulness_score(shared_memory)
+        )
 
         # 3 — Compute overall score
-        overall_score = self._compute_overall_score(doc_results, consistency_issues)
+        overall_score = self._compute_overall_score(
+            doc_results, consistency_issues, faithfulness_score, faithfulness_checked,
+        )
 
         # 4 — Determine status
         if overall_score >= WARN_THRESHOLD:
@@ -167,6 +196,12 @@ class ValidationAgent:
         elif overall_score >= PASS_THRESHOLD:
             status = "PASSED_WITH_WARNINGS"
         else:
+            status = "FAILED"
+
+        # 4.5 — Faithfulness floor: a document whose claims are largely
+        # unsupported must not pass on structural quality alone, otherwise
+        # hallucinations never reach the Revision Agent (see FAITHFULNESS_FLOOR).
+        if faithfulness_checked and faithfulness_score < FAITHFULNESS_FLOOR:
             status = "FAILED"
 
         # 5 — Aggregate results
@@ -482,48 +517,90 @@ class ValidationAgent:
     # Faithfulness / groundedness check
     # ------------------------------------------------------------------
 
-    def _compute_faithfulness_score(self, shared_memory: SharedMemory) -> tuple[float, str]:
-        """LLM-judge how well ARCHITECTURE.md's claims are grounded in the
-        RAG context that was retrieved to generate it (hallucination-risk
-        signal, in the same spirit as RAGAS's faithfulness metric).
+    def _compute_faithfulness_score(self, shared_memory: SharedMemory) -> tuple[float, str, bool]:
+        """LLM-judge how well each generated document's claims are grounded in
+        the RAG context they were generated from (hallucination-risk signal,
+        in the same spirit as RAGAS's faithfulness metric).
 
-        ARCHITECTURE.md is used because it's the most fact-dense generated
-        document (component responsibilities, data flow, dependency graph),
-        so it has the most checkable claims per token.
+        Checks every document in FAITHFULNESS_CHECKED_DOCS that has content;
+        REPORTS.md is excluded because it's rendered deterministically from
+        static-analysis data, not LLM-authored, so it can't hallucinate.
 
         Runs only when both an LLM and RAG context are available — with no
         context to check claims against, any score would be meaningless.
 
         Returns:
-            tuple[float, str]: (score 0-100, notes on unsupported claims).
-            (0.0, "") when the check couldn't run.
+            tuple[float, str, bool]: (mean score 0-100 across checked docs,
+            combined notes on unsupported claims, whether any doc was
+            actually checked). (0.0, "", False) when nothing could be checked.
         """
         llm = self._llm
         if llm is None:
-            return 0.0, ""
-
-        architecture = shared_memory.documentation.file_docs.get("ARCHITECTURE.md", "")
-        if not architecture.strip():
-            return 0.0, ""
+            return 0.0, "", False
 
         ctx_pkg = getattr(shared_memory, "rag_context_package", None)
         rag_context = self._slicer.get_global_context(ctx_pkg)
         if not rag_context.strip():
-            return 0.0, ""
+            return 0.0, "", False
 
         repo = shared_memory.repository
+        repo_name = repo.full_name or repo.name
+
+        scores: list[float] = []
+        notes_parts: list[str] = []
+        for doc_key in FAITHFULNESS_CHECKED_DOCS:
+            content = shared_memory.documentation.file_docs.get(doc_key, "")
+            if not content.strip():
+                continue
+            result = self._score_document_faithfulness(
+                llm, repo_name, rag_context, doc_key, content,
+            )
+            if result is None:
+                # LLM call failed for this doc — exclude it rather than
+                # counting it as a 0, so a transient API error on one judge
+                # call can't drag an otherwise-fine set of docs into the
+                # FAITHFULNESS_FLOOR and force a false FAILED verdict.
+                continue
+            score, notes = result
+            scores.append(score)
+            if notes:
+                notes_parts.append(f"[{doc_key}] {notes}")
+
+        if not scores:
+            return 0.0, "", False
+
+        return round(sum(scores) / len(scores), 1), "\n".join(notes_parts), True
+
+    def _score_document_faithfulness(
+        self, llm, repo_name: str, rag_context: str, doc_key: str, content: str,
+    ) -> tuple[float, str] | None:
+        """Judge a single document's groundedness against rag_context.
+
+        Args:
+            llm:        LLM client to use (already confirmed non-None by the caller).
+            repo_name:  Repository full name, for the prompt header.
+            rag_context: Retrieved code context to check claims against.
+            doc_key:    Document identifier, e.g. "README.md".
+            content:    Full document content (truncated to
+                        FAITHFULNESS_DOC_CHAR_LIMIT before sending to the LLM).
+
+        Returns:
+            tuple[float, str] | None: (score 0-100, notes on unsupported
+            claims), or None if the LLM call itself failed (as opposed to a
+            genuinely low score, which is a valid result).
+        """
         prompt = FAITHFULNESS_VALIDATION_PROMPT.format(
-            repository_name=repo.full_name or repo.name,
+            repository_name=repo_name,
             rag_context=rag_context,
-            document_type="ARCHITECTURE.md",
-            document_content=architecture[:4000],
+            document_type=doc_key,
+            document_content=content[:FAITHFULNESS_DOC_CHAR_LIMIT],
         )
 
         try:
             raw = llm.generate(prompt)
         except Exception as exc:
-            logger.warning("Faithfulness check failed: %s", exc)
-            return 0.0, ""
+            logger.warning("Faithfulness check failed for %s: %s", doc_key, exc)
+            return None
 
         return self._parse_faithfulness_result(raw)
 
@@ -552,13 +629,23 @@ class ValidationAgent:
         self,
         doc_results: list[DocumentValidationResult],
         consistency_issues: list[str] | None = None,
+        faithfulness_score: float = 0.0,
+        faithfulness_checked: bool = False,
     ) -> float:
         """Compute the weighted overall quality score.
 
         Args:
-            doc_results:        Per-document validation results.
-            consistency_issues: Cross-document contradictions found by
-                                 _validate_cross_document_consistency.
+            doc_results:          Per-document validation results.
+            consistency_issues:   Cross-document contradictions found by
+                                   _validate_cross_document_consistency.
+            faithfulness_score:   Groundedness score from
+                                   _compute_faithfulness_score (0-100).
+            faithfulness_checked: Whether the faithfulness check actually
+                                   ran. When False, faithfulness_score is
+                                   ignored entirely (same rationale as the
+                                   WEIGHT_COVERAGE exclusion below — folding
+                                   in an unmeasured 0.0 would deflate every
+                                   score for reasons unrelated to quality).
 
         Returns:
             float: Score from 0 to 100, rounded to one decimal place.
@@ -587,17 +674,26 @@ class ValidationAgent:
         # excluded here. Normalise by the sum of weights actually applied —
         # otherwise the weights below sum to 0.90 instead of 1.0 and every
         # score is deflated by 10 points regardless of document quality.
+        # WEIGHT_FAITHFULNESS follows the same rule: only included when the
+        # faithfulness check actually ran (see faithfulness_checked docstring).
         applied_weight_sum = (
             WEIGHT_COMPLETENESS + WEIGHT_ACCURACY + WEIGHT_CONSISTENCY
             + WEIGHT_MARKDOWN + WEIGHT_READABILITY
         )
-        score = (
+        if faithfulness_checked:
+            applied_weight_sum += WEIGHT_FAITHFULNESS
+
+        score_sum = (
             avg_completeness * WEIGHT_COMPLETENESS
             + avg_accuracy * WEIGHT_ACCURACY
             + consistency * WEIGHT_CONSISTENCY
             + avg_formatting * WEIGHT_MARKDOWN
             + readability * WEIGHT_READABILITY
-        ) / applied_weight_sum
+        )
+        if faithfulness_checked:
+            score_sum += faithfulness_score * WEIGHT_FAITHFULNESS
+
+        score = score_sum / applied_weight_sum
         return round(min(score, 100.0), 1)
 
 

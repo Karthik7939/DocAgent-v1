@@ -16,11 +16,14 @@ from typing import Optional, cast
 
 logger = logging.getLogger(__name__)
 
-# Conservative character budgets per context type.
-# Gemini 1.5 Flash allows up to 1 M tokens, but small, focused contexts
-# produce higher-quality documentation than large, unfocused dumps.
-MAX_FILE_CONTEXT_CHARS: int = 3_000    # ~750 tokens — file-specific RAG chunks
-MAX_GLOBAL_CONTEXT_CHARS: int = 4_000  # ~1 000 tokens — repo-level RAG chunks
+# Character budgets per context type. Sized to comfortably hold several full
+# retrieved chunks (RAG_MAX_CHUNK_TOKENS=1024, ~4,096 chars/chunk, up to
+# RAG_TOP_K=10 chunks retrieved) rather than truncating to a fraction of one
+# chunk — too-small budgets starve the Documentation Agent of evidence and
+# it fills the gap by fabricating claims from training data instead of the
+# actual repository. Gemini's context window has ample room for this.
+MAX_FILE_CONTEXT_CHARS: int = 12_000    # ~3 000 tokens — file-specific RAG chunks
+MAX_GLOBAL_CONTEXT_CHARS: int = 20_000  # ~5 000 tokens — repo-level RAG chunks
 
 # MMR relevance/diversity balance: 1.0 = pure relevance (original rank
 # order, no diversity effect), 0.0 = pure diversity (ignores relevance
